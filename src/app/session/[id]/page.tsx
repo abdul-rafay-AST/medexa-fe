@@ -1,0 +1,364 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { ChevronLeft, Pause, Square, Check, X, ChevronRight, Play, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import {
+  api,
+  ApiInsight,
+  ApiRecordingState,
+  ApiSession,
+  ApiSuggestion,
+  formatElapsed,
+} from "@/lib/api";
+
+export default function LiveSession() {
+  const params = useParams();
+  const router = useRouter();
+  const sessionId = params.id as string;
+
+  const [session, setSession] = useState<ApiSession | null>(null);
+  const [recordingState, setRecordingState] = useState<ApiRecordingState | null>(null);
+  const [insights, setInsights] = useState<ApiInsight[]>([]);
+  const [suggestions, setSuggestions] = useState<ApiSuggestion[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const refreshLiveData = useCallback(async () => {
+    const [sessionData, state, resInsights, resSuggestions] = await Promise.all([
+      api.getSession(sessionId),
+      api.getState(sessionId),
+      api.getInsights(sessionId),
+      api.getSuggestions(sessionId),
+    ]);
+
+    if (!sessionData) {
+      setLoadError(
+        sessionId === "1"
+          ? "This demo link is static. Go back and click Start a new session."
+          : "Session not found. Start a new session from the dashboard."
+      );
+      return;
+    }
+
+    setLoadError(null);
+    setSession(sessionData);
+    if (state) setRecordingState(state);
+    if (resInsights) setInsights(resInsights);
+    if (resSuggestions) setSuggestions(resSuggestions);
+  }, [sessionId]);
+
+  const handleTranscriptChunk = useCallback(
+    async (chunk: string) => {
+      if (!chunk.trim() || !sessionId || loadError) return;
+      await api.analyzeTranscriptChunk(sessionId, chunk);
+      await refreshLiveData();
+    },
+    [sessionId, loadError, refreshLiveData]
+  );
+
+  const {
+    isListening,
+    isSupported,
+    error: speechError,
+    startListening,
+    stopListening,
+    transcript,
+    interimTranscript,
+  } = useSpeechRecognition((chunk) => {
+    handleTranscriptChunk(chunk).catch(console.error);
+  });
+
+  useEffect(() => {
+    refreshLiveData();
+    const interval = setInterval(refreshLiveData, 2000);
+    return () => clearInterval(interval);
+  }, [refreshLiveData]);
+
+  useEffect(() => {
+    return () => stopListening();
+  }, [stopListening]);
+
+  const startRecording = async () => {
+    startListening();
+    const state = await api.updateState(sessionId, "recording");
+    if (state) setRecordingState(state);
+  };
+
+  const toggleRecording = async () => {
+    if (isListening) {
+      stopListening();
+      const state = await api.updateState(sessionId, "paused");
+      if (state) setRecordingState(state);
+    } else {
+      await startRecording();
+    }
+  };
+
+  const handleStop = async () => {
+    stopListening();
+    await api.updateState(sessionId, "stopped");
+    router.push(`/session/${sessionId}/documentation?tab=soap`);
+  };
+
+  const handleApplySuggestion = async (suggestionId: string) => {
+    await api.applySuggestion(sessionId, suggestionId);
+    await refreshLiveData();
+  };
+
+  const elapsed = recordingState?.elapsedSeconds ?? 0;
+  const units = recordingState?.units ?? 0;
+  const timeLeft = recordingState?.timeLeft ?? 0;
+  const nextUnitAt = recordingState?.nextUnitAt ?? 0;
+  const nextUnitNumber = units + 1;
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-6 py-24 px-4 text-center">
+        <Card className="p-8 max-w-lg rounded-3xl border-medexa-gray-200 bg-white shadow-sm">
+          <h1 className="text-xl font-bold text-medexa-gray-900 mb-3">Session unavailable</h1>
+          <p className="text-medexa-gray-500 mb-6">{loadError}</p>
+          <Link href="/">
+            <Button className="rounded-full bg-medexa-blue text-white hover:bg-blue-700">Back to Dashboard</Button>
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center py-24 text-medexa-gray-500 gap-3">
+        <Loader2 className="h-6 w-6 animate-spin text-medexa-blue" />
+        Loading session...
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6 relative pb-24">
+      {/* Patient header — 2 Screen */}
+      <div className="flex items-center gap-4">
+        <Link href="/">
+          <Button variant="ghost" size="icon" className="text-medexa-gray-900 rounded-full">
+            <ChevronLeft className="h-6 w-6" />
+          </Button>
+        </Link>
+        <Avatar className="h-14 w-14 border-2 border-white shadow-sm">
+          <AvatarImage src={session.avatar || `https://i.pravatar.cc/150?u=${session.patientName}`} />
+          <AvatarFallback>{session.patientName.slice(0, 2).toUpperCase()}</AvatarFallback>
+        </Avatar>
+        <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-8 flex-1">
+          <div>
+            <h1 className="text-2xl font-bold text-medexa-gray-900">{session.patientName}</h1>
+            <div className="flex gap-6 mt-1 text-sm">
+              {session.ageSex && (
+                <div>
+                  <span className="text-medexa-gray-500 block text-xs">Age / Sex</span>
+                  <span className="font-semibold text-medexa-gray-900">{session.ageSex}</span>
+                </div>
+              )}
+              {session.weight && (
+                <div>
+                  <span className="text-medexa-gray-500 block text-xs">Weight</span>
+                  <span className="font-semibold text-medexa-gray-900">{session.weight}</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-6 text-sm ml-auto text-right">
+            {session.mrnNumber && (
+              <div>
+                <span className="text-medexa-gray-500 block text-xs text-left">MRN Number</span>
+                <span className="font-bold text-medexa-gray-900">{session.mrnNumber}</span>
+              </div>
+            )}
+            {session.payorSource && (
+              <div>
+                <span className="text-medexa-gray-500 block text-xs text-left">Payor Source</span>
+                <span className="font-bold text-medexa-gray-900 flex items-center gap-1 justify-end">
+                  <span className="h-2 w-2 rounded-full border-2 border-medexa-blue bg-white"></span> {session.payorSource}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          {/* Recording bar — 2 Screen */}
+          <Card
+            className="p-6 rounded-3xl flex items-center justify-between border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)] cursor-pointer"
+            onClick={() => !isListening && isSupported && startRecording()}
+          >
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-1 h-12 w-16">
+                {[4, 8, 6, 12, 10, 5, 8, 4].map((h, i) => (
+                  <div
+                    key={i}
+                    className={`w-1 rounded-full bg-medexa-blue transition-all duration-300 ${isListening ? "animate-pulse" : "opacity-50"}`}
+                    style={{ height: `${h * 10}%` }}
+                  />
+                ))}
+              </div>
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-bold text-medexa-blue tracking-tight">{formatElapsed(elapsed)}</span>
+                  <span className="text-sm font-semibold text-medexa-gray-500">/ {units || 1} Unit{units === 1 ? "" : "s"}</span>
+                </div>
+                <p className="text-sm text-medexa-gray-500 mt-1">
+                  {isListening ? (
+                    <>Say <span className="font-bold text-medexa-gray-900">Pause</span> Recording..</>
+                  ) : isSupported ? (
+                    <>Tap here or <span className="font-bold text-medexa-gray-900">Resume</span> below to record</>
+                  ) : (
+                    "Use Chrome or Edge for voice capture"
+                  )}
+                </p>
+                {speechError && <p className="text-xs text-red-500 mt-1">{speechError}</p>}
+              </div>
+            </div>
+            <div className="text-right flex flex-col items-end">
+              <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Unit {nextUnitNumber} at <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
+              </div>
+              <p className="text-sm font-bold text-medexa-blue mt-1">
+                + {formatElapsed(timeLeft)} <span className="text-medexa-gray-500 font-medium">left</span>
+              </p>
+            </div>
+          </Card>
+
+          {(transcript || interimTranscript) && (
+            <div className="pl-4 pr-4 py-2 italic text-sm text-medexa-gray-500">
+              &ldquo;{transcript} <span className="text-medexa-gray-400">{interimTranscript}</span>&rdquo;
+            </div>
+          )}
+
+          {/* Insights timeline — 2 Screen */}
+          <div className="pl-2 relative mt-4">
+            <div className="absolute left-6 top-2 bottom-0 w-px border-l border-dashed border-medexa-gray-200"></div>
+            <p className="text-sm text-medexa-gray-500 mb-6 pl-4">Medexa is Processing for Insights...</p>
+
+            <div className="flex flex-col gap-6 relative">
+              {insights.map((insight, idx) => (
+                <div key={insight.id || idx} className="flex relative items-start gap-6">
+                  <div className="w-10 flex-shrink-0 flex justify-end mt-4">
+                    <div className="h-6 w-6 border-b border-l border-dashed border-medexa-gray-300 rounded-bl-xl"></div>
+                  </div>
+                  {insight.type === "protocol" ? (
+                    <Card className="p-4 flex-1 rounded-2xl border-transparent shadow-lg shadow-medexa-green/10 ring-1 ring-medexa-blue/10 bg-white">
+                      <Badge className="bg-medexa-blue hover:bg-medexa-blue text-white rounded-full px-3 mb-2 font-semibold tracking-wide">
+                        {insight.label || "Protocol Ask"}
+                      </Badge>
+                      <p className="font-medium text-medexa-gray-900">&ldquo;{insight.question}&rdquo;</p>
+                    </Card>
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-3">
+                      <div className="flex justify-between items-center">
+                        <Badge variant="outline" className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize">
+                          {insight.type === "billing" ? "Billing" : insight.label || "Detected"}
+                        </Badge>
+                        <button type="button" className="text-sm font-semibold text-medexa-gray-500 flex items-center gap-1 hover:text-medexa-gray-900 transition-colors">
+                          <X className="h-4 w-4" /> Ignore
+                        </button>
+                      </div>
+                      <p className="font-medium text-medexa-gray-900">{insight.description || insight.question}</p>
+                      {insight.status === "pending" && (
+                        <Button variant="outline" className="rounded-full justify-between mt-1 text-medexa-blue font-semibold border-medexa-gray-200 w-full md:w-auto h-12">
+                          <div className="h-8 w-8 rounded-full bg-medexa-gray-50 flex items-center justify-center mr-2">
+                            <ChevronRight className="h-4 w-4 text-medexa-blue" />
+                          </div>
+                          Slide to Approve
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {insights.length === 0 && (
+                <div className="pl-14 text-sm text-medexa-gray-400">
+                  Start recording and describe the session — insights will appear here.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Suggestions — 2 Screen */}
+        <div>
+          <Card className="p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100 sticky top-24">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="font-semibold text-medexa-gray-900">Suggestions</h2>
+              <span className="font-bold text-medexa-gray-900">{suggestions.length}</span>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {suggestions.map((suggestion) => (
+                <Card key={suggestion.id} className="p-4 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm relative">
+                  {suggestion.applied ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="h-2 w-2 rounded-full bg-medexa-green animate-pulse" />
+                        <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900">
+                          {suggestion.title}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-medexa-gray-900 font-medium">{suggestion.text}</p>
+                    </>
+                  ) : (
+                    <>
+                      <Badge className="absolute -top-3 left-4 bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-[90%] truncate">
+                        {suggestion.title}
+                      </Badge>
+                      <p className="text-sm text-medexa-gray-900 mt-2 mb-4 font-medium">{suggestion.text}</p>
+                      <div className="flex justify-end border-t pt-3">
+                        <Button
+                          variant="ghost"
+                          className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent hover:text-medexa-blue"
+                          onClick={() => handleApplySuggestion(suggestion.id)}
+                        >
+                          <Check className="h-4 w-4" /> Apply
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              ))}
+              {suggestions.length === 0 && (
+                <div className="text-sm text-medexa-gray-400">No suggestions yet.</div>
+              )}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* Floating action bar — 2 Screen */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.1)] border border-medexa-gray-100 flex items-center gap-2 z-50">
+        <Button
+          variant={isListening ? "ghost" : "default"}
+          className={`rounded-full px-6 h-12 font-semibold ${isListening ? "text-medexa-blue hover:bg-medexa-blue-light" : "bg-medexa-blue text-white hover:bg-blue-700"}`}
+          onClick={toggleRecording}
+        >
+          <div className={`h-8 w-8 rounded-full flex items-center justify-center mr-2 ${isListening ? "bg-medexa-blue-light" : "bg-white/20"}`}>
+            {isListening ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </div>
+          {isListening ? "Pause" : "Resume"}
+        </Button>
+        <div className="w-px h-8 bg-medexa-gray-200 mx-2"></div>
+        <Button onClick={handleStop} variant="ghost" className="rounded-full px-6 h-12 font-semibold text-medexa-gray-900 hover:bg-medexa-gray-50">
+          <div className="h-8 w-8 rounded-full bg-medexa-blue text-white flex items-center justify-center mr-2">
+            <Square className="h-3 w-3 fill-current" />
+          </div>
+          Stop
+        </Button>
+      </div>
+    </div>
+  );
+}
