@@ -1,6 +1,4 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_MEDEXA_API_URL ||
-  "https://abdul-rafay-ast-medexa-backend.hf.space";
+// Dynamically configured API Base URL
 
 export type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 
@@ -64,9 +62,22 @@ export interface StartSessionResponse {
 }
 
 class ApiClient {
+  private getApiUrl(): string {
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      // If we are running in the browser on Vercel or any non-localhost domain,
+      // fallback to the Hugging Face Space backend URL.
+      if (host !== "localhost" && host !== "127.0.0.1" && !host.startsWith("192.168.")) {
+        return "https://abdul-rafay-ast-medexa-backend.hf.space";
+      }
+    }
+    return process.env.NEXT_PUBLIC_MEDEXA_API_URL || "http://localhost:8000";
+  }
+
   private async fetch<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
     try {
-      const response = await fetch(`${API_BASE}${endpoint}`, {
+      const apiBase = this.getApiUrl();
+      const response = await fetch(`${apiBase}${endpoint}`, {
         ...options,
         headers: {
           "Content-Type": "application/json",
