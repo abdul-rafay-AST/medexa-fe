@@ -53,6 +53,7 @@ export function useSpeechRecognition(
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
+  const lastProcessedIndexRef = useRef(0);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -78,21 +79,25 @@ export function useSpeechRecognition(
     recognition.lang = "en-US";
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalTranscript = "";
       let currentInterim = "";
+      let newlyFinalized = "";
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          const text = event.results[i][0].transcript;
-          finalTranscript += text + " ";
-          onChunkRef.current?.(text.trim());
+          // If we haven't processed this index yet, treat it as new
+          if (i >= lastProcessedIndexRef.current) {
+            const text = event.results[i][0].transcript;
+            newlyFinalized += text + " ";
+            lastProcessedIndexRef.current = i + 1;
+            onChunkRef.current?.(text.trim());
+          }
         } else {
           currentInterim += event.results[i][0].transcript;
         }
       }
 
-      if (finalTranscript) {
-        setTranscript((prev) => prev + finalTranscript);
+      if (newlyFinalized) {
+        setTranscript((prev) => prev + newlyFinalized);
       }
       setInterimTranscript(currentInterim);
     };
@@ -115,6 +120,7 @@ export function useSpeechRecognition(
     recognition.onstart = () => {
       setError(null);
       setIsListening(true);
+      lastProcessedIndexRef.current = 0;
     };
 
     recognition.onend = () => {

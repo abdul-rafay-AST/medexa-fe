@@ -17,6 +17,7 @@ import {
   ApiSuggestion,
   formatElapsed,
 } from "@/lib/api";
+import { SwipeToApprove } from "@/components/ui/swipe-to-approve";
 
 export default function LiveSession() {
   const params = useParams();
@@ -307,12 +308,7 @@ export default function LiveSession() {
                       </div>
                       <p className="font-medium text-medexa-gray-900">{insight.description || insight.question}</p>
                       {insight.status === "pending" && (
-                        <Button variant="outline" className="rounded-full justify-between mt-1 text-medexa-blue font-semibold border-medexa-gray-200 w-full md:w-auto h-12">
-                          <div className="h-8 w-8 rounded-full bg-medexa-gray-50 flex items-center justify-center mr-2">
-                            <ChevronRight className="h-4 w-4 text-medexa-blue" />
-                          </div>
-                          Slide to Approve
-                        </Button>
+                        <SwipeToApprove onApprove={() => api.approveInsight(sessionId, insight.id || "").then(refreshLiveData)} />
                       )}
                     </div>
                   )}
