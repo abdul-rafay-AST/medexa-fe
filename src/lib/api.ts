@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_MEDEXA_API_URL || "http://localhost:8000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_MEDEXA_API_URL ||
+  "https://abdul-rafay-ast-medexa-backend.hf.space";
 
 export type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 

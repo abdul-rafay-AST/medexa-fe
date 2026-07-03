@@ -27,7 +27,6 @@ export default function Dashboard() {
   const [startError, setStartError] = useState<string | null>(null);
 
   const handleStartSession = async (patient: StartSessionRequest = SAMUEL_PATIENT) => {
-    const apiBase = process.env.NEXT_PUBLIC_MEDEXA_API_URL || "http://localhost:8000";
     try {
       setIsStarting(true);
       setStartError(null);
@@ -35,12 +34,12 @@ export default function Dashboard() {
       if (res?.session?.id) {
         router.push(`/session/${res.session.id}`);
       } else {
-        setStartError(`Could not start session. Is the backend running on ${apiBase} ?`);
+        setStartError("Could not start session. The backend may be starting up — please try again in a moment.");
         setIsStarting(false);
       }
     } catch (e) {
       console.error("Failed to start session", e);
-      setStartError(`Failed to connect to backend at ${apiBase}.`);
+      setStartError("Could not connect to the server. Please check your connection and try again.");
       setIsStarting(false);
     }
   };
