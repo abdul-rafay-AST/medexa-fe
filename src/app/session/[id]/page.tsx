@@ -155,6 +155,16 @@ export default function LiveSession() {
   const nextUnitAt = recordingState?.nextUnitAt ?? 0;
   const nextUnitNumber = units + 1;
 
+  const appliedSuggestions = suggestions.filter((s) => s.applied);
+  const pendingSuggestions = suggestions.filter((s) => !s.applied);
+  const liveCptSuggestion = isListening ? pendingSuggestions[0] : null;
+  const queueSuggestions = isListening ? pendingSuggestions.slice(1) : pendingSuggestions;
+
+  const formatDetectedLine = (insight: ApiInsight) => {
+    if (insight.type === "billing") return insight.question;
+    return insight.question || insight.description;
+  };
+
   if (loadError) {
     return (
       <div className="flex flex-col items-center justify-center gap-6 py-24 px-4 text-center">
@@ -299,15 +309,19 @@ export default function LiveSession() {
             </div>
           )}
 
-          {/* Insights timeline — proto screen 2 */}
+          {/* Insights timeline — Figma screen 2 */}
           <div className="relative mt-2 min-w-0">
-            <div className="absolute left-4 top-2 bottom-0 w-px border-l border-dashed border-medexa-gray-200 hidden sm:block" />
+            <div className="absolute left-[15px] top-3 bottom-0 border-l-2 border-dashed border-medexa-blue/25 hidden sm:block" />
             <p className="text-sm text-medexa-gray-500 mb-4 pl-2">Medexa is Processing for Insights...</p>
-            <div className="flex flex-col gap-4 relative pl-0 sm:pl-6">
+            <div className="flex flex-col gap-5 relative pl-0 sm:pl-8">
               {insights.map((insight, idx) => (
-                <div key={insight.id || idx} className="flex flex-col gap-2">
+                <div key={insight.id || idx} className="relative">
+                  <span
+                    data-insight-dot
+                    className="hidden sm:block absolute -left-[1.35rem] top-5 h-3 w-3 rounded-full bg-medexa-blue ring-4 ring-medexa-gray-50 z-10"
+                  />
                   {insight.type === "protocol" ? (
-                    <Card className="p-4 rounded-2xl border-transparent shadow-lg shadow-medexa-green/10 ring-1 ring-medexa-blue/10 bg-white">
+                    <Card className="p-4 rounded-2xl border-l-4 border-l-medexa-green border border-medexa-gray-100 shadow-[0_8px_24px_rgba(16,185,129,0.08)] bg-white">
                       <Badge className="bg-medexa-blue hover:bg-medexa-blue text-white rounded-full px-3 mb-2 font-semibold tracking-wide">
                         {insight.label || "Protocol Ask"}
                       </Badge>
@@ -319,18 +333,26 @@ export default function LiveSession() {
                         <Badge variant="outline" className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize text-xs">
                           {insight.type === "billing" ? "Billing" : insight.label || "Detected"}
                         </Badge>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-medexa-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors"
-                          onClick={() => api.ignoreInsight(sessionId, insight.id).then(refreshLiveData)}
-                        >
-                          <X className="h-3 w-3" /> Ignore
-                        </button>
+                        {insight.status === "pending" && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-medexa-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors"
+                            onClick={() => api.ignoreInsight(sessionId, insight.id).then(refreshLiveData)}
+                          >
+                            <X className="h-3 w-3" /> Ignore
+                          </button>
+                        )}
                       </div>
-                      <p className="font-medium text-medexa-gray-900 text-sm break-words">{insight.description || insight.question}</p>
+                      <p className="font-semibold text-medexa-gray-900 text-sm break-words">{formatDetectedLine(insight)}</p>
+                      {insight.description && insight.type === "detected" && (
+                        <p className="text-xs text-medexa-gray-500 mt-1 break-words">{insight.description}</p>
+                      )}
                       {insight.status === "pending" && (
-                        <div className="mt-3">
-                          <SwipeToApprove onApprove={() => api.approveInsight(sessionId, insight.id || "").then(refreshLiveData)} />
+                        <SwipeToApprove onApprove={() => api.approveInsight(sessionId, insight.id || "").then(refreshLiveData)} />
+                      )}
+                      {insight.status === "approved" && (
+                        <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-medexa-green">
+                          <Check className="h-4 w-4" /> Approved
                         </div>
                       )}
                     </Card>
@@ -346,45 +368,65 @@ export default function LiveSession() {
           </div>
         </div>
 
-        {/* Suggestions panel */}
+        {/* Suggestions panel — Figma screen 2 */}
         <div className={`lg:sticky lg:top-24 lg:self-start min-w-0 ${mobilePanel === "insights" ? "hidden lg:block" : "block"}`}>
           <Card className="p-4 md:p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="font-semibold text-medexa-gray-900">Live Suggestions</h2>
+              <h2 className="font-semibold text-medexa-gray-900">Suggestions</h2>
               <span className="h-6 w-6 rounded-full bg-medexa-blue text-white text-xs flex items-center justify-center font-bold">{suggestions.length}</span>
             </div>
             <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
-              {suggestions.map((suggestion) => (
-                <Card key={suggestion.id} className="p-3 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm relative">
-                  {suggestion.applied ? (
-                    <>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-medexa-green animate-pulse" />
-                        <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-full truncate">
-                          {suggestion.title}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-medexa-gray-900 font-medium break-words">{suggestion.text}</p>
-                    </>
-                  ) : (
-                    <>
-                      <Badge className="bg-medexa-blue/10 text-medexa-blue rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-blue/10 max-w-full truncate mb-2">
-                        {suggestion.title}
-                      </Badge>
-                      <p className="text-sm text-medexa-gray-900 mb-3 font-medium break-words">{suggestion.text}</p>
-                      <div className="flex justify-end border-t pt-2">
-                        <Button
-                          variant="ghost"
-                          className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent hover:text-medexa-blue text-sm"
-                          onClick={() => handleApplySuggestion(suggestion.id)}
-                        >
-                          <Check className="h-4 w-4" /> Apply
-                        </Button>
-                      </div>
-                    </>
-                  )}
+              {liveCptSuggestion && (
+                <Card className="p-4 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-medexa-gray-500 mb-2">Current Live CPT</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="h-2 w-2 rounded-full bg-medexa-green animate-pulse shrink-0" />
+                    <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-full truncate">
+                      {liveCptSuggestion.title}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-medexa-gray-900 font-medium break-words">{liveCptSuggestion.text}</p>
+                </Card>
+              )}
+
+              {appliedSuggestions.map((suggestion) => (
+                <Card key={suggestion.id} className="p-4 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-medexa-gray-500 mb-2">Unit Recorded</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="h-2 w-2 rounded-full bg-medexa-green shrink-0" />
+                    <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-full truncate">
+                      {suggestion.title}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-medexa-gray-900 font-medium break-words">{suggestion.text}</p>
                 </Card>
               ))}
+
+              {queueSuggestions.map((suggestion) => {
+                const isModifier = /modifier|ncci|bundle/i.test(suggestion.title + suggestion.text);
+                return (
+                  <Card key={suggestion.id} className="p-4 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm relative">
+                    <Badge
+                      className={`rounded-full px-3 py-0.5 text-xs font-bold mb-2 max-w-full truncate ${
+                        isModifier ? "bg-medexa-gray-900 text-white hover:bg-medexa-gray-900" : "bg-medexa-blue/10 text-medexa-blue hover:bg-medexa-blue/10"
+                      }`}
+                    >
+                      {suggestion.title}
+                    </Badge>
+                    <p className="text-sm text-medexa-gray-900 mb-3 font-medium break-words">{suggestion.text}</p>
+                    <div className="flex justify-end border-t border-medexa-gray-100 pt-2">
+                      <Button
+                        variant="ghost"
+                        className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent hover:text-medexa-blue text-sm"
+                        onClick={() => handleApplySuggestion(suggestion.id)}
+                      >
+                        <Check className="h-4 w-4" /> Apply
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              })}
+
               {suggestions.length === 0 && (
                 <div className="text-sm text-medexa-gray-400">No suggestions yet. Start speaking to see AI suggestions.</div>
               )}
