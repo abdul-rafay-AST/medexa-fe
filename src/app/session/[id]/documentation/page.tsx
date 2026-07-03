@@ -2,29 +2,210 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
-import { ChevronLeft, Edit2, Check, Send, Plus, Info, X, ChevronRight } from "lucide-react";
+import { useParams, useSearchParams, useRouter, usePathname } from "next/navigation";
+import { ChevronLeft, Edit2, Check, Send, Info, X, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
+
+interface SoapNoteSection {
+  [key: string]: string | undefined;
+  chiefComplaint?: string;
+  painScale?: string;
+  duration?: string;
+  observationNotes?: string;
+  rangeOfMotion?: string;
+  affect?: string;
+  vitalSigns?: string;
+  diagnosisSummary?: string;
+  primaryDiagnosisCode?: string;
+  severity?: string;
+  followUpPlan?: string;
+}
+
+interface SoapData {
+  subjective: SoapNoteSection;
+  objective: SoapNoteSection;
+  assessment: SoapNoteSection;
+  plan: SoapNoteSection;
+}
+
+interface BillingCpt {
+  id: string;
+  code: string;
+  title: string;
+  units: string;
+  duration: string;
+  warning?: string;
+  note?: string | null;
+  status: "pending" | "approved" | "rejected";
+}
+
+interface BillingData {
+  sessionTime: string;
+  units: string;
+  threshold: string;
+  cptCodes: BillingCpt[];
+  snfFunctionalLogic?: {
+    section: string;
+    level: string;
+  };
+}
+
+interface SummaryData {
+  summary: string;
+  sent: boolean;
+}
 
 export default function Documentation() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const sessionId = params.id as string;
+
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "soap");
+  const [soap, setSoap] = useState<SoapData | null>(null);
+  const [billing, setBilling] = useState<BillingData | null>(null);
+  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditingSoap, setIsEditingSoap] = useState(false);
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [isSendingSummary, setIsSendingSummary] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const tab = searchParams.get("tab");
     if (tab) setActiveTab(tab);
   }, [searchParams]);
 
+  const handleTabChange = (val: string) => {
+    setActiveTab(val);
+    router.replace(`${pathname}?tab=${val}`);
+  };
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const [resSoap, resBilling, resSummary] = await Promise.all([
+          api.getSoapNotes(sessionId),
+          api.getBilling(sessionId),
+          api.getPatientSummary(sessionId),
+        ]);
+
+        if (resSoap) setSoap(resSoap as SoapData);
+        if (resBilling) setBilling(resBilling as BillingData);
+        if (resSummary) setSummary(resSummary as SummaryData);
+      } catch (e) {
+        console.error("Failed to load session documentation data", e);
+        setError("Failed to load data from backend.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadData();
+  }, [sessionId]);
+
+  const handleSoapChange = (section: "subjective" | "objective" | "assessment" | "plan", field: string, value: string) => {
+    setSoap((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        [section]: {
+          ...prev[section],
+          [field]: value,
+        },
+      };
+    });
+  };
+
+  const handleSaveSoap = async () => {
+    try {
+      setIsEditingSoap(false);
+      const updated = await api.updateSoapNotes(sessionId, soap);
+      if (updated) setSoap(updated as SoapData);
+    } catch (e) {
+      console.error("Failed to save SOAP notes", e);
+    }
+  };
+
+  const handleSaveSummary = async () => {
+    try {
+      setIsEditingSummary(false);
+      const updated = await api.updatePatientSummary(sessionId, summary?.summary || "");
+      if (updated) setSummary(updated as SummaryData);
+    } catch (e) {
+      console.error("Failed to save summary", e);
+    }
+  };
+
+  const handleSendSummary = async () => {
+    try {
+      setIsSendingSummary(true);
+      const updated = await api.sendPatientSummary(sessionId);
+      if (updated) setSummary(updated as SummaryData);
+    } catch (e) {
+      console.error("Failed to send summary", e);
+    } finally {
+      setIsSendingSummary(false);
+    }
+  };
+
+  const handleApproveCpt = async (cptId: string) => {
+    try {
+      const updated = await api.approveBillingCpt(sessionId, cptId);
+      if (updated) {
+        const resBilling = await api.getBilling(sessionId);
+        if (resBilling) setBilling(resBilling as BillingData);
+      }
+    } catch (e) {
+      console.error("Failed to approve CPT", e);
+    }
+  };
+
+  const handleRejectCpt = async (cptId: string) => {
+    try {
+      const updated = await api.rejectBillingCpt(sessionId, cptId);
+      if (updated) {
+        const resBilling = await api.getBilling(sessionId);
+        if (resBilling) setBilling(resBilling as BillingData);
+      }
+    } catch (e) {
+      console.error("Failed to reject CPT", e);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-medexa-gray-500 gap-3">
+        <Loader2 className="h-6 w-6 animate-spin text-medexa-blue" />
+        Loading documentation...
+      </div>
+    );
+  }
+
+  if (error || !soap) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-6 py-24 px-4 text-center">
+        <Card className="p-8 max-w-lg rounded-3xl border-medexa-gray-200 bg-white shadow-sm">
+          <h1 className="text-xl font-bold text-medexa-gray-900 mb-3">Documentation Unavailable</h1>
+          <p className="text-medexa-gray-500 mb-6">{error || "Ensure the backend is running and the session is finalized."}</p>
+          <Link href="/">
+            <Button className="rounded-full bg-medexa-blue text-white hover:bg-blue-700">Back to Dashboard</Button>
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-24 max-w-[1000px] mx-auto">
-      
       {/* Session Header */}
       <div>
         <div className="flex items-center gap-4 mb-4">
@@ -41,39 +222,39 @@ export default function Documentation() {
             </span>
           </h1>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-8 pl-14 text-sm font-semibold text-medexa-gray-900">
-          <span>July 05, <span className="text-medexa-gray-500 font-medium">12:00 PM</span></span>
-          <span className="text-medexa-gray-500 font-medium">Patient ID: <span className="text-medexa-gray-900 font-bold">#99283</span></span>
-          <span className="text-medexa-gray-500 font-medium">Duration: <span className="text-medexa-gray-900 font-bold">52:22</span></span>
-          <span className="text-medexa-gray-500 font-medium">Unit(s): <span className="text-medexa-gray-900 font-bold">3</span></span>
+          <span>Finalized Status: <span className="text-medexa-green font-bold uppercase">Complete</span></span>
+          <span className="text-medexa-gray-500 font-medium">Session ID: <span className="text-medexa-gray-900 font-bold">#{sessionId.slice(0, 8)}</span></span>
+          <span className="text-medexa-gray-500 font-medium">Duration: <span className="text-medexa-gray-900 font-bold">{billing?.sessionTime || "00:00"}</span></span>
+          <span className="text-medexa-gray-500 font-medium">Unit(s): <span className="text-medexa-gray-900 font-bold">{billing?.units || "0"}</span></span>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-2">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full mt-2">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-medexa-gray-200 pb-4 mb-6 gap-4">
           <TabsList className="bg-transparent h-auto p-0 gap-2">
-            <TabsTrigger 
-              value="soap" 
+            <TabsTrigger
+              value="soap"
               className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
             >
               SOAP Notes
             </TabsTrigger>
-            <TabsTrigger 
-              value="billing" 
+            <TabsTrigger
+              value="billing"
               className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
             >
               Billing Intelligence
             </TabsTrigger>
-            <TabsTrigger 
-              value="summary" 
+            <TabsTrigger
+              value="summary"
               className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
             >
               Patient Summary
             </TabsTrigger>
           </TabsList>
-          
-          <Link href={`/session/${sessionId}/claim`}>
+
+          <Link href={`/session/${sessionId}/claim?tab=${activeTab}`}>
             <Button variant="ghost" className="text-medexa-blue font-bold text-base hover:bg-medexa-blue-light rounded-full">
               <Check className="mr-2 h-5 w-5 stroke-[3]" /> Create Claim-Document
             </Button>
@@ -82,30 +263,65 @@ export default function Documentation() {
 
         {/* SOAP Notes Tab */}
         <TabsContent value="soap" className="flex flex-col gap-6 mt-0 outline-none">
+          {/* Controls */}
+          <div className="flex justify-end gap-2">
+            {isEditingSoap ? (
+              <Button onClick={handleSaveSoap} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold">
+                <Save className="h-4 w-4 mr-2" /> Save SOAP Notes
+              </Button>
+            ) : (
+              <Button onClick={() => setIsEditingSoap(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100">
+                <Edit2 className="h-4 w-4 mr-2" /> Edit SOAP Notes
+              </Button>
+            )}
+          </div>
+
           {/* Subjective */}
           <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">Subjective</h2>
-              <Button variant="ghost" size="sm" className="text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 rounded-full">
-                <Edit2 className="h-4 w-4 mr-2" /> Edit
-              </Button>
-            </div>
-            
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Subjective</h2>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Chief Complaint</label>
-                <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed">
-                  Patient reports persistent discomfort in the lower back over the last 14 days, particularly after prolonged sitting. Mentions difficulty with mobility and occasional sharp pains. States: 'I feel like my back is always tight and stiff.'
-                </div>
+                {isEditingSoap ? (
+                  <Textarea
+                    value={soap.subjective.chiefComplaint}
+                    onChange={(e) => handleSoapChange("subjective", "chiefComplaint", e.target.value)}
+                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                  />
+                ) : (
+                  <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
+                    {soap.subjective.chiefComplaint || "No complaint recorded."}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Pain Scale (0-10)</label>
-                  <Input defaultValue="6" className="rounded-xl border-medexa-gray-200" />
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.subjective.painScale}
+                      onChange={(e) => handleSoapChange("subjective", "painScale", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold">
+                      {soap.subjective.painScale || "Not recorded"}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Duration</label>
-                  <Input defaultValue="14 days" className="rounded-xl border-medexa-gray-200" />
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.subjective.duration}
+                      onChange={(e) => handleSoapChange("subjective", "duration", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold">
+                      {soap.subjective.duration || "Not recorded"}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -113,37 +329,64 @@ export default function Documentation() {
 
           {/* Objective */}
           <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">Objective</h2>
-              <Button variant="ghost" size="sm" className="text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 rounded-full">
-                <Edit2 className="h-4 w-4 mr-2" /> Edit
-              </Button>
-            </div>
-            
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Objective</h2>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Observation Notes</label>
-                <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed">
-                  Observed limited range of motion in lumbar flexion (40°) and slight guarding behavior on palpation of L4-L5 region. Patient ambulates with mild antalgic gait. Vital signs within normal limits: BP 118/76, HR 72 bpm. Affect is mildly anxious. Arrived on time.
-                </div>
+                {isEditingSoap ? (
+                  <Textarea
+                    value={soap.objective.observationNotes}
+                    onChange={(e) => handleSoapChange("objective", "observationNotes", e.target.value)}
+                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                  />
+                ) : (
+                  <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
+                    {soap.objective.observationNotes || "No objective notes recorded."}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">Range of Motion</label>
-                  <Input defaultValue="Lumbar Flexion 40°" className="rounded-xl border-medexa-gray-200" />
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.objective.rangeOfMotion}
+                      onChange={(e) => handleSoapChange("objective", "rangeOfMotion", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold">
+                      {soap.objective.rangeOfMotion || "Not recorded"}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">Affect</label>
-                  <div className="relative">
-                    <select className="w-full h-10 px-3 py-2 rounded-xl border border-medexa-gray-200 bg-white text-sm appearance-none outline-none focus:border-medexa-blue">
-                      <option>Mildly Anxious</option>
-                    </select>
-                    <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-medexa-gray-500 rotate-90" />
-                  </div>
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.objective.affect}
+                      onChange={(e) => handleSoapChange("objective", "affect", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold">
+                      {soap.objective.affect || "Not recorded"}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">Vital Signs</label>
-                  <Input defaultValue="BP 118/76, HR 72" className="rounded-xl border-medexa-gray-200" />
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.objective.vitalSigns}
+                      onChange={(e) => handleSoapChange("objective", "vitalSigns", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold">
+                      {soap.objective.vitalSigns || "Not recorded"}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -151,33 +394,50 @@ export default function Documentation() {
 
           {/* Assessment */}
           <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">Assessment</h2>
-              <Button variant="ghost" size="sm" className="text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 rounded-full">
-                <Edit2 className="h-4 w-4 mr-2" /> Edit
-              </Button>
-            </div>
-            
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Assessment</h2>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Diagnosis Summary</label>
-                <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed">
-                  Chronic Lower Back Pain (M54.5) secondary to postural dysfunction and muscle deconditioning. Patient demonstrates functional limitations consistent with moderate severity. Focus on stretching and strengthening exercises for lumbar support. Follow-up scheduled.
-                </div>
+                {isEditingSoap ? (
+                  <Textarea
+                    value={soap.assessment.diagnosisSummary}
+                    onChange={(e) => handleSoapChange("assessment", "diagnosisSummary", e.target.value)}
+                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                  />
+                ) : (
+                  <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
+                    {soap.assessment.diagnosisSummary || "No diagnosis summary recorded."}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Primary Diagnosis Code</label>
-                  <Input defaultValue="M54.5" className="rounded-xl border-medexa-gray-200" />
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.assessment.primaryDiagnosisCode}
+                      onChange={(e) => handleSoapChange("assessment", "primaryDiagnosisCode", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold uppercase">
+                      {soap.assessment.primaryDiagnosisCode || "Not recorded"}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Severity</label>
-                  <div className="relative">
-                    <select className="w-full h-10 px-3 py-2 rounded-xl border border-medexa-gray-200 bg-white text-sm appearance-none outline-none focus:border-medexa-blue">
-                      <option>Moderate</option>
-                    </select>
-                    <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-medexa-gray-500 rotate-90" />
-                  </div>
+                  {isEditingSoap ? (
+                    <Input
+                      value={soap.assessment.severity}
+                      onChange={(e) => handleSoapChange("assessment", "severity", e.target.value)}
+                      className="rounded-xl border-medexa-gray-200"
+                    />
+                  ) : (
+                    <div className="p-3 rounded-xl border border-medexa-gray-200 bg-medexa-gray-50 text-medexa-gray-900 text-sm font-semibold capitalize">
+                      {soap.assessment.severity || "Not recorded"}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -185,34 +445,21 @@ export default function Documentation() {
 
           {/* Plan */}
           <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">Plan</h2>
-              <Button variant="ghost" size="sm" className="text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 rounded-full">
-                <Edit2 className="h-4 w-4 mr-2" /> Edit
-              </Button>
-            </div>
-            
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Plan</h2>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Treatment Plan</label>
-                <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed">
-                  Continue with Orthoparatheautic Therapy protocol. Emphasize stretching and strengthening exercises targeting lumbar region and core stabilizers. HEP issued — patient to perform 3x daily. Follow-up appointment set for June 19, 2026.
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Next Session Date</label>
-                  <Input defaultValue="06/19/2026" type="date" className="rounded-xl border-medexa-gray-200" />
-                </div>
-                <div>
-                  <label className="text-sm font-bold text-medexa-gray-900 mb-2 block">* Session Frequency</label>
-                  <div className="relative">
-                    <select className="w-full h-10 px-3 py-2 rounded-xl border border-medexa-gray-200 bg-white text-sm appearance-none outline-none focus:border-medexa-blue">
-                      <option>Weekly</option>
-                    </select>
-                    <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-medexa-gray-500 rotate-90" />
+                {isEditingSoap ? (
+                  <Textarea
+                    value={soap.plan.followUpPlan}
+                    onChange={(e) => handleSoapChange("plan", "followUpPlan", e.target.value)}
+                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                  />
+                ) : (
+                  <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
+                    {soap.plan.followUpPlan || "No treatment plan recorded."}
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </Card>
@@ -221,117 +468,130 @@ export default function Documentation() {
         {/* Billing Intelligence Tab */}
         <TabsContent value="billing" className="flex flex-col gap-8 mt-0 outline-none">
           <h2 className="text-xl font-semibold text-medexa-gray-900 mt-2">Billing Intelligence</h2>
-          
+
           <div className="flex flex-wrap gap-4">
             <Card className="p-5 rounded-2xl border-medexa-gray-200 shadow-sm min-w-[240px]">
               <p className="text-sm text-medexa-gray-500 font-medium mb-1">Session Time</p>
-              <h3 className="text-3xl font-bold text-medexa-gray-900 mb-3">52:22</h3>
+              <h3 className="text-3xl font-bold text-medexa-gray-900 mb-3">{billing?.sessionTime || "00:00"}</h3>
               <div className="flex items-center gap-2 text-xs font-semibold">
                 <span className="h-1.5 w-1.5 rounded-full bg-medexa-gray-500"></span>
-                <span className="text-medexa-gray-500">1 Threshold</span>
-                <span className="text-medexa-gray-900 ml-1">$11,091<span className="text-medexa-gray-500 font-normal">/$2,330</span></span>
+                <span className="text-medexa-gray-500">{billing?.threshold || "8-Minute Threshold"}</span>
               </div>
             </Card>
 
             <Card className="p-5 rounded-2xl border-medexa-blue-light bg-medexa-blue-light/10 shadow-sm min-w-[240px] relative">
               <Info className="absolute top-4 right-4 h-5 w-5 text-medexa-gray-500" />
               <p className="text-sm text-medexa-gray-500 font-medium mb-1">Session Units</p>
-              <h3 className="text-3xl font-bold text-medexa-gray-900 mb-3">4 Units</h3>
+              <h3 className="text-3xl font-bold text-medexa-gray-900 mb-3">{billing?.units || "0"} Units</h3>
               <Badge className="bg-medexa-green/10 text-medexa-green hover:bg-medexa-green/10 rounded-sm text-xs font-bold border-0 px-2 py-0.5">8 Minute Rule</Badge>
             </Card>
           </div>
 
           <div>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">CPT Codes Detected</h2>
-              <Button variant="ghost" className="text-medexa-blue font-bold hover:bg-medexa-blue-light rounded-full px-4 h-9">
-                <Plus className="mr-2 h-4 w-4 stroke-[3]" /> Add more CPTs
-              </Button>
-            </div>
-
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">CPT Codes Detected</h2>
             <div className="flex flex-col gap-4">
-              <Card className="p-5 rounded-2xl border-medexa-gray-200 shadow-sm flex justify-between items-center bg-white">
-                <div>
-                  <h3 className="font-bold text-medexa-gray-900 mb-1">97110 - Therapeutic Ex.</h3>
-                  <div className="text-sm font-medium flex gap-4 text-medexa-gray-500">
-                    <span>Unit(s): <span className="text-medexa-gray-900">1</span></span>
-                    <span>Duration: <span className="text-medexa-gray-900">08:04</span></span>
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" className="text-medexa-blue"><Edit2 className="h-5 w-5" /></Button>
-              </Card>
-
-              <Card className="p-5 rounded-2xl border-medexa-gray-200 shadow-[0_4px_20px_rgba(0,0,0,0.05)] bg-white relative">
-                <div className="flex justify-between items-start mb-4">
+              {billing?.cptCodes?.map((cpt) => (
+                <Card key={cpt.id} className="p-5 rounded-2xl border-medexa-gray-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center bg-white gap-4 relative">
                   <div>
-                    <h3 className="font-bold text-medexa-gray-900 mb-1">97112 - Neuromusc. Ed.</h3>
+                    <h3 className="font-bold text-medexa-gray-900 mb-1">{cpt.code} - {cpt.title}</h3>
                     <div className="text-sm font-medium flex gap-4 text-medexa-gray-500">
-                      <span>Unit(s): <span className="text-medexa-gray-900">1</span></span>
-                      <span>Duration: <span className="text-medexa-gray-900">15:56</span></span>
+                      <span>Unit(s): <span className="text-medexa-gray-900">{cpt.units}</span></span>
+                      <span>Duration: <span className="text-medexa-gray-900">{cpt.duration}</span></span>
+                      <span className="capitalize">
+                        Status: <span className={cpt.status === "approved" ? "text-medexa-green font-bold" : cpt.status === "rejected" ? "text-red-500 font-bold" : "text-amber-500 font-semibold"}>{cpt.status}</span>
+                      </span>
                     </div>
+                    {cpt.warning && (
+                      <p className="text-sm text-red-500 mt-2 font-semibold flex items-center gap-1">
+                        <Info className="h-4 w-4" /> {cpt.warning}
+                      </p>
+                    )}
+                    {cpt.note && (
+                      <p className="text-sm text-medexa-gray-500 mt-1">{cpt.note}</p>
+                    )}
                   </div>
-                  <Badge className="bg-medexa-gray-900 hover:bg-medexa-gray-900 text-white rounded-full px-3 py-1 font-bold">Modifier 59 Required</Badge>
-                </div>
-                <p className="text-sm text-medexa-gray-500 mb-4 pb-4 border-b border-medexa-gray-100">Potential Bundle conflict detected with 97110. Apply modifier?</p>
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" className="text-medexa-gray-500 font-bold px-4 h-9 rounded-full"><X className="mr-2 h-4 w-4" /> Reject</Button>
-                  <Button variant="ghost" className="text-medexa-blue font-bold px-4 h-9 rounded-full hover:bg-medexa-blue-light"><Check className="mr-2 h-4 w-4 stroke-[3]" /> Approve</Button>
-                </div>
-              </Card>
-
-              <Card className="p-5 rounded-2xl border-medexa-gray-200 shadow-sm flex justify-between items-center bg-white">
-                <div>
-                  <h3 className="font-bold text-medexa-gray-900 mb-1">97530 - Therapeutic Act.</h3>
-                  <div className="text-sm font-medium flex gap-4 text-medexa-gray-500">
-                    <span>Unit(s): <span className="text-medexa-gray-900">2</span></span>
-                    <span>Duration: <span className="text-medexa-gray-900">28:22</span></span>
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" className="text-medexa-blue"><Edit2 className="h-5 w-5" /></Button>
-              </Card>
+                  {cpt.status === "pending" ? (
+                    <div className="flex gap-2 self-end md:self-center">
+                      <Button onClick={() => handleRejectCpt(cpt.id)} variant="ghost" className="text-medexa-gray-500 font-bold px-4 h-9 rounded-full hover:bg-red-50 hover:text-red-500">
+                        <X className="mr-2 h-4 w-4" /> Reject
+                      </Button>
+                      <Button onClick={() => handleApproveCpt(cpt.id)} variant="ghost" className="text-medexa-blue font-bold px-4 h-9 rounded-full hover:bg-medexa-blue-light">
+                        <Check className="mr-2 h-4 w-4 stroke-[3]" /> Approve
+                      </Button>
+                    </div>
+                  ) : (
+                    <Badge className={cpt.status === "approved" ? "bg-medexa-green/10 text-medexa-green hover:bg-medexa-green/10 font-bold border-0 px-3 py-1 text-sm rounded-lg" : "bg-red-50 text-red-500 hover:bg-red-50 font-bold border-0 px-3 py-1 text-sm rounded-lg"}>
+                      {cpt.status.toUpperCase()}
+                    </Badge>
+                  )}
+                </Card>
+              ))}
+              {(!billing?.cptCodes || billing.cptCodes.length === 0) && (
+                <div className="text-sm text-medexa-gray-400">No CPT codes detected.</div>
+              )}
             </div>
           </div>
 
-          <div className="mt-4">
-            <h2 className="text-lg font-semibold text-medexa-gray-900 mb-4">SNF & Functional Logic</h2>
-            <p className="text-sm text-medexa-gray-900 font-medium mb-6">Section GG — Patient Assist Level (MDS 3.0)</p>
-            
-            <div className="px-4 pb-8">
-              <div className="mb-2 font-bold text-medexa-blue">3 - Partial</div>
-              <div className="relative h-2 bg-medexa-blue-light/50 rounded-full w-full">
-                <div className="absolute top-0 left-0 h-full w-1/2 bg-medexa-blue rounded-full"></div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 bg-medexa-gray-500 rounded-full border-4 border-medexa-blue-light shadow-md"></div>
-              </div>
-              <div className="flex justify-between mt-3 text-xs font-bold text-medexa-gray-900 px-1">
-                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
-              </div>
+          {billing?.snfFunctionalLogic && (
+            <div className="mt-4">
+              <h2 className="text-lg font-semibold text-medexa-gray-900 mb-4">SNF & Functional Logic</h2>
+              <p className="text-sm text-medexa-gray-900 font-medium mb-4">Section GG — Patient Assist Level (MDS 3.0)</p>
+              <Card className="p-5 rounded-2xl border-medexa-gray-200 shadow-sm bg-white">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-medexa-blue">{billing.snfFunctionalLogic.section}</h3>
+                  <Badge variant="outline" className="border-medexa-blue text-medexa-blue font-semibold">{billing.snfFunctionalLogic.level}</Badge>
+                </div>
+                <p className="text-sm text-medexa-gray-500">Determined from clinical observations during exercises.</p>
+              </Card>
             </div>
-          </div>
+          )}
         </TabsContent>
 
         {/* Patient Summary Tab */}
-        <TabsContent value="summary" className="mt-0 outline-none">
-          <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[500px]">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-semibold text-medexa-gray-500">Session Summary Note</h2>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" className="text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 rounded-full">
-                  <Edit2 className="h-4 w-4 mr-2" /> Edit
-                </Button>
-                <Button variant="ghost" size="sm" className="text-medexa-blue font-bold hover:bg-medexa-blue-light rounded-full">
-                  <Send className="h-4 w-4 mr-2 stroke-[2]" /> Send to Patient
-                </Button>
+        <TabsContent value="summary" className="mt-0 outline-none flex flex-col gap-6">
+          <div className="flex justify-end gap-2">
+            {isEditingSummary ? (
+              <Button onClick={handleSaveSummary} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold">
+                <Save className="h-4 w-4 mr-2" /> Save Summary
+              </Button>
+            ) : (
+              <Button onClick={() => setIsEditingSummary(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100">
+                <Edit2 className="h-4 w-4 mr-2" /> Edit Summary
+              </Button>
+            )}
+            <Button
+              onClick={handleSendSummary}
+              disabled={isSendingSummary || summary?.sent}
+              variant="ghost"
+              className={`rounded-full font-bold px-6 h-10 ${summary?.sent ? "text-medexa-green bg-medexa-green/10" : "text-medexa-blue hover:bg-medexa-blue-light"}`}
+            >
+              {isSendingSummary ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : summary?.sent ? (
+                <Check className="h-4 w-4 mr-2 stroke-[2.5]" />
+              ) : (
+                <Send className="h-4 w-4 mr-2 stroke-[2]" />
+              )}
+              {summary?.sent ? "Sent to Patient" : "Send to Patient"}
+            </Button>
+          </div>
+
+          <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[400px]">
+            <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Session Summary Note</h2>
+            {isEditingSummary ? (
+              <Textarea
+                className="flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue"
+                value={summary?.summary || ""}
+                onChange={(e) => setSummary((prev) => {
+                  if (!prev) return null;
+                  return { ...prev, summary: e.target.value };
+                })}
+              />
+            ) : (
+              <div className="flex-1 text-medexa-gray-900 text-base leading-relaxed whitespace-pre-wrap">
+                {summary?.summary || "No summary text available."}
               </div>
-            </div>
-            
-            <Textarea 
-              className="flex-1 resize-none border-0 p-0 text-medexa-gray-900 text-base leading-relaxed focus-visible:ring-0"
-              defaultValue="On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises."
-            />
-            
-            <div className="flex justify-end mt-4 opacity-30">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 3 3 21"/><polyline points="21 14 21 21 14 21"/></svg>
-            </div>
+            )}
           </Card>
         </TabsContent>
       </Tabs>

@@ -28,6 +28,7 @@ export default function LiveSession() {
   const [insights, setInsights] = useState<ApiInsight[]>([]);
   const [suggestions, setSuggestions] = useState<ApiSuggestion[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState<number>(0);
 
   const refreshLiveData = useCallback(async () => {
     const [sessionData, state, resInsights, resSuggestions] = await Promise.all([
@@ -74,6 +75,31 @@ export default function LiveSession() {
     handleTranscriptChunk(chunk).catch(console.error);
   });
 
+  // Sync elapsed with recordingState, but preserve/progress our local ticking
+  useEffect(() => {
+    if (recordingState) {
+      setElapsed((prev) => {
+        if (isListening) {
+          return Math.max(prev, recordingState.elapsedSeconds);
+        }
+        return recordingState.elapsedSeconds;
+      });
+    }
+  }, [recordingState, isListening]);
+
+  // Smooth local timer increment when recording/listening
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isListening) {
+      interval = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isListening]);
+
   useEffect(() => {
     refreshLiveData();
     const interval = setInterval(refreshLiveData, 2000);
@@ -84,26 +110,37 @@ export default function LiveSession() {
     return () => stopListening();
   }, [stopListening]);
 
-  const startRecording = async () => {
+  const startRecording = async (currentElapsed: number) => {
     startListening();
-    const state = await api.updateState(sessionId, "recording");
+    const state = await api.updateState(sessionId, "recording", currentElapsed);
     if (state) setRecordingState(state);
   };
 
   const toggleRecording = async () => {
     if (isListening) {
       stopListening();
-      const state = await api.updateState(sessionId, "paused");
+      const state = await api.updateState(sessionId, "paused", elapsed);
       if (state) setRecordingState(state);
     } else {
-      await startRecording();
+      await startRecording(elapsed);
     }
   };
 
   const handleStop = async () => {
     stopListening();
-    await api.updateState(sessionId, "stopped");
-    router.push(`/session/${sessionId}/documentation?tab=soap`);
+    const activeCode = session?.cpt || "";
+    const finalizeRes = await api.finalizeSession(
+      sessionId,
+      transcript || "No transcript collected.",
+      elapsed,
+      { active: false, code: activeCode, seconds: elapsed, units: units || 1 }
+    );
+    if (finalizeRes) {
+      router.push(`/session/${sessionId}/documentation?tab=soap`);
+    } else {
+      await api.updateState(sessionId, "stopped", elapsed);
+      router.push(`/session/${sessionId}/documentation?tab=soap`);
+    }
   };
 
   const handleApplySuggestion = async (suggestionId: string) => {
@@ -111,7 +148,6 @@ export default function LiveSession() {
     await refreshLiveData();
   };
 
-  const elapsed = recordingState?.elapsedSeconds ?? 0;
   const units = recordingState?.units ?? 0;
   const timeLeft = recordingState?.timeLeft ?? 0;
   const nextUnitAt = recordingState?.nextUnitAt ?? 0;
@@ -195,7 +231,7 @@ export default function LiveSession() {
           {/* Recording bar — 2 Screen */}
           <Card
             className="p-6 rounded-3xl flex items-center justify-between border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)] cursor-pointer"
-            onClick={() => !isListening && isSupported && startRecording()}
+            onClick={() => !isListening && isSupported && startRecording(elapsed)}
           >
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-1 h-12 w-16">

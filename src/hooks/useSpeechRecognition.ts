@@ -1,5 +1,35 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// Web Speech API type declarations for TS compiler
+interface SpeechRecognitionEvent {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: {
+      isFinal: boolean;
+      [index: number]: {
+        transcript: string;
+      };
+    };
+  };
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
 export interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isSupported: boolean;
@@ -68,15 +98,16 @@ export function useSpeechRecognition(
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error === "no-speech" || event.error === "aborted") {
+        // Benign / expected speech engine events — do not log as errors
+        return;
+      }
       console.error("Speech recognition error:", event.error);
       if (event.error === "not-allowed") {
         shouldListenRef.current = false;
         setIsListening(false);
         setError("Microphone access denied. Click Start Recording and allow microphone access.");
-      } else if (event.error === "no-speech") {
-        // Benign — keep listening.
-        return;
-      } else if (event.error !== "aborted") {
+      } else {
         setError(`Speech recognition error: ${event.error}`);
       }
     };
@@ -163,7 +194,7 @@ export function useSpeechRecognition(
 
 declare global {
   interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
   }
 }
