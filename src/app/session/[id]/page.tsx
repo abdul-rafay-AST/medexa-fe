@@ -436,8 +436,8 @@ export default function LiveSession() {
       </div>
 
       {/* Floating action bar — constrained width for mobile */}
-      <div className="fixed bottom-6 left-0 right-0 flex justify-center z-50 px-4">
-        <div className="bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-medexa-gray-100 flex items-center gap-1 max-w-xs w-full">
+      <div className="fixed bottom-6 left-0 right-0 flex justify-center z-50 px-4 pointer-events-none">
+        <div className="bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-medexa-gray-100 flex items-center gap-1 max-w-xs w-full pointer-events-auto">
           <Button
             variant={isListening ? "ghost" : "default"}
             className={`rounded-full px-4 h-11 font-semibold flex-1 ${isListening ? "text-medexa-blue hover:bg-medexa-blue-light" : "bg-medexa-blue text-white hover:bg-blue-700"}`}

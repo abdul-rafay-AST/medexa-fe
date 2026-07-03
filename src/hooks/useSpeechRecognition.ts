@@ -47,17 +47,6 @@ export interface UseSpeechRecognitionReturn {
   resetTranscript: () => void;
 }
 
-function appendUnique(prev: string, chunk: string): string {
-  const text = chunk.trim();
-  if (!text) return prev;
-  const normalizedPrev = prev.trimEnd().toLowerCase();
-  const normalizedNew = text.toLowerCase();
-  if (normalizedPrev.endsWith(normalizedNew)) return prev;
-  if (normalizedPrev.includes(normalizedNew) && normalizedNew.length > 12) return prev;
-  const spacer = prev && !prev.endsWith(" ") ? " " : "";
-  return prev + spacer + text + " ";
-}
-
 export function useSpeechRecognition(
   onChunkFinalized?: (chunk: string) => void
 ): UseSpeechRecognitionReturn {
@@ -70,7 +59,7 @@ export function useSpeechRecognition(
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const sentChunksRef = useRef<Set<string>>(new Set());
+  const finalizedIndicesRef = useRef<Set<number>>(new Set());
   const buildRecognitionRef = useRef<(() => SpeechRecognition | null) | null>(null);
 
   useEffect(() => {
@@ -99,17 +88,20 @@ export function useSpeechRecognition(
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         let currentInterim = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           const result = event.results[i];
-          const text = result[0].transcript.trim();
-          if (!text) continue;
-
           if (result.isFinal) {
-            const dedupeKey = text.toLowerCase().replace(/\s+/g, " ");
-            if (sentChunksRef.current.has(dedupeKey)) continue;
-            sentChunksRef.current.add(dedupeKey);
-            setTranscript((prev) => appendUnique(prev, text));
-            onChunkRef.current?.(text);
+            if (!finalizedIndicesRef.current.has(i)) {
+              finalizedIndicesRef.current.add(i);
+              const text = result[0].transcript.trim();
+              if (text) {
+                setTranscript((prev) => {
+                  const spacer = prev && !prev.endsWith(" ") ? " " : "";
+                  return prev + spacer + text + " ";
+                });
+                onChunkRef.current?.(text);
+              }
+            }
           } else {
             currentInterim += result[0].transcript;
           }
@@ -140,6 +132,7 @@ export function useSpeechRecognition(
         }
         setTimeout(() => {
           if (!shouldListenRef.current) return;
+          finalizedIndicesRef.current.clear();
           const next = buildRecognitionRef.current?.();
           if (next) {
             recognitionRef.current = next;
@@ -179,6 +172,7 @@ export function useSpeechRecognition(
       return;
     }
     shouldListenRef.current = true;
+    finalizedIndicesRef.current.clear();
     try {
       recognition.start();
     } catch (e) {
@@ -205,7 +199,7 @@ export function useSpeechRecognition(
   const resetTranscript = useCallback(() => {
     setTranscript("");
     setInterimTranscript("");
-    sentChunksRef.current.clear();
+    finalizedIndicesRef.current.clear();
   }, []);
 
   return {

@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function AppHeader() {
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background">
+    <header className="sticky top-0 z-50 w-full border-b border-medexa-gray-200 bg-white">
       <div className="flex h-14 md:h-16 items-center px-3 md:px-6 gap-2 min-w-0">
         <div className="flex items-center gap-2 md:gap-4 shrink-0">
           <Button variant="ghost" size="icon" className="shrink-0 bg-medexa-gray-50 text-medexa-gray-900">

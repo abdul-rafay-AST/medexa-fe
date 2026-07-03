@@ -131,14 +131,14 @@ export default function ClaimDocument() {
     <div className="flex flex-col gap-8 pb-24 max-w-[1000px] mx-auto w-full px-4 md:px-0">
       {/* Header */}
       <div>
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-4">
-            <Link href={`/session/${sessionId}/documentation?tab=${backTab}`}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href={`/session/${sessionId}/documentation?tab=${backTab}`} className="shrink-0">
               <Button variant="ghost" size="icon" className="text-medexa-gray-900 rounded-full hover:bg-medexa-gray-100">
                 <ChevronLeft className="h-6 w-6" />
               </Button>
             </Link>
-            <h1 className="text-2xl md:text-3xl font-bold text-medexa-gray-900 flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-medexa-gray-900 flex flex-wrap items-center gap-2 min-w-0">
               Claim Document
               <Badge className={
                 claim.claimStatus === "submitted" ? "bg-medexa-green text-white font-bold border-0" :
@@ -149,8 +149,8 @@ export default function ClaimDocument() {
               </Badge>
             </h1>
           </div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" className="text-medexa-gray-900 font-semibold rounded-full hover:bg-medexa-gray-100 hidden md:flex">
+          <div className="flex items-center gap-3 self-end sm:self-center">
+            <Button variant="ghost" className="text-medexa-gray-900 font-semibold rounded-full hover:bg-medexa-gray-100 hidden sm:flex">
               Export <ChevronDown className="ml-2 h-4 w-4" />
             </Button>
             <Button
@@ -276,25 +276,27 @@ export default function ClaimDocument() {
       </div>
 
       {/* Floating Action Bar */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white rounded-full p-2.5 shadow-[0_10px_40px_rgba(0,0,0,0.1)] border border-medexa-gray-100 flex items-center gap-2 z-50 whitespace-nowrap">
-        <Button
-          onClick={handleSaveDraft}
-          disabled={isSaving || claim.claimStatus === "submitted"}
-          variant="ghost"
-          className="rounded-full px-6 h-12 font-bold text-medexa-blue hover:bg-medexa-blue-light text-sm md:text-base"
-        >
-          {isSaving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-5 w-5 mr-2 stroke-[2.5]" />}
-          Save as Draft
-        </Button>
-        <div className="w-px h-8 bg-medexa-gray-200 mx-2"></div>
-        <Button
-          onClick={handleVerifyClaim}
-          disabled={isVerifying || claim.claimStatus === "submitted"}
-          className="rounded-full px-6 h-12 font-bold bg-medexa-blue text-white hover:bg-blue-700 text-sm md:text-base flex items-center shadow-md"
-        >
-          {isVerifying ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <ShieldCheck className="h-5 w-5 mr-2 stroke-[2.5]" />}
-          Verify Claim Document
-        </Button>
+      <div className="fixed bottom-8 left-0 right-0 flex justify-center z-50 px-4 pointer-events-none">
+        <div className="bg-white rounded-full p-2.5 shadow-[0_10px_40px_rgba(0,0,0,0.1)] border border-medexa-gray-100 flex items-center gap-2 pointer-events-auto whitespace-nowrap">
+          <Button
+            onClick={handleSaveDraft}
+            disabled={isSaving || claim.claimStatus === "submitted"}
+            variant="ghost"
+            className="rounded-full px-6 h-12 font-bold text-medexa-blue hover:bg-medexa-blue-light text-sm md:text-base"
+          >
+            {isSaving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-5 w-5 mr-2 stroke-[2.5]" />}
+            Save as Draft
+          </Button>
+          <div className="w-px h-8 bg-medexa-gray-200 mx-2"></div>
+          <Button
+            onClick={handleVerifyClaim}
+            disabled={isVerifying || claim.claimStatus === "submitted"}
+            className="rounded-full px-6 h-12 font-bold bg-medexa-blue text-white hover:bg-blue-700 text-sm md:text-base flex items-center shadow-md"
+          >
+            {isVerifying ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <ShieldCheck className="h-5 w-5 mr-2 stroke-[2.5]" />}
+            Verify Claim Document
+          </Button>
+        </div>
       </div>
     </div>
   );
