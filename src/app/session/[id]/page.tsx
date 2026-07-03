@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Pause, Square, Check, X, ChevronRight, Play, Loader2 } from "lucide-react";
+import { ChevronLeft, Pause, Square, Check, X,  Play, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,6 +30,7 @@ export default function LiveSession() {
   const [suggestions, setSuggestions] = useState<ApiSuggestion[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState<number>(0);
+  const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
 
   const refreshLiveData = useCallback(async () => {
     const [sessionData, state, resInsights, resSuggestions] = await Promise.all([
@@ -227,8 +228,28 @@ export default function LiveSession() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-0">
+        {/* Mobile: switch between Insights and Suggestions (proto screen 2) */}
+        <div className="lg:hidden flex gap-2 w-full min-w-0">
+          <Button
+            type="button"
+            variant={mobilePanel === "insights" ? "default" : "outline"}
+            className={`flex-1 rounded-full h-10 text-sm font-semibold ${mobilePanel === "insights" ? "bg-medexa-blue text-white" : ""}`}
+            onClick={() => setMobilePanel("insights")}
+          >
+            Insights ({insights.length})
+          </Button>
+          <Button
+            type="button"
+            variant={mobilePanel === "suggestions" ? "default" : "outline"}
+            className={`flex-1 rounded-full h-10 text-sm font-semibold ${mobilePanel === "suggestions" ? "bg-medexa-blue text-white" : ""}`}
+            onClick={() => setMobilePanel("suggestions")}
+          >
+            Suggestions ({suggestions.length})
+          </Button>
+        </div>
+
+        <div className={`lg:col-span-2 flex flex-col gap-6 min-w-0 ${mobilePanel === "suggestions" ? "hidden lg:flex" : "flex"}`}>
           {/* Recording bar */}
           <Card
             className="p-4 md:p-6 rounded-3xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)] cursor-pointer"
@@ -278,10 +299,11 @@ export default function LiveSession() {
             </div>
           )}
 
-          {/* Insights timeline */}
-          <div className="relative mt-2">
+          {/* Insights timeline — proto screen 2 */}
+          <div className="relative mt-2 min-w-0">
+            <div className="absolute left-4 top-2 bottom-0 w-px border-l border-dashed border-medexa-gray-200 hidden sm:block" />
             <p className="text-sm text-medexa-gray-500 mb-4 pl-2">Medexa is Processing for Insights...</p>
-            <div className="flex flex-col gap-4 relative">
+            <div className="flex flex-col gap-4 relative pl-0 sm:pl-6">
               {insights.map((insight, idx) => (
                 <div key={insight.id || idx} className="flex flex-col gap-2">
                   {insight.type === "protocol" ? (
@@ -297,7 +319,11 @@ export default function LiveSession() {
                         <Badge variant="outline" className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize text-xs">
                           {insight.type === "billing" ? "Billing" : insight.label || "Detected"}
                         </Badge>
-                        <button type="button" className="text-xs font-semibold text-medexa-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors">
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-medexa-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors"
+                          onClick={() => api.ignoreInsight(sessionId, insight.id).then(refreshLiveData)}
+                        >
                           <X className="h-3 w-3" /> Ignore
                         </button>
                       </div>
@@ -320,8 +346,8 @@ export default function LiveSession() {
           </div>
         </div>
 
-        {/* Suggestions panel — shows below on mobile, right column on desktop */}
-        <div className="lg:sticky lg:top-24 lg:self-start">
+        {/* Suggestions panel */}
+        <div className={`lg:sticky lg:top-24 lg:self-start min-w-0 ${mobilePanel === "insights" ? "hidden lg:block" : "block"}`}>
           <Card className="p-4 md:p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100">
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-semibold text-medexa-gray-900">Live Suggestions</h2>

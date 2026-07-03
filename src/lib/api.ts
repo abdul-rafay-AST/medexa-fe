@@ -153,6 +153,14 @@ class ApiClient {
     });
   }
 
+  async generateSoapNotes(sessionId: string): Promise<unknown | null> {
+    return this.fetch(`/soap-notes/${sessionId}/generate`, { method: "POST" });
+  }
+
+  async generatePatientSummary(sessionId: string): Promise<unknown | null> {
+    return this.fetch(`/patient-summary/${sessionId}/generate`, { method: "POST" });
+  }
+
   async finalizeSession(
     sessionId: string,
     transcript: string,

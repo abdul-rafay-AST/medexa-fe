@@ -93,11 +93,26 @@ export default function Documentation() {
       try {
         setIsLoading(true);
         setError(null);
-        const [resSoap, resBilling, resSummary] = await Promise.all([
+        const [resSoapRaw, resBilling, resSummaryRaw] = await Promise.all([
           api.getSoapNotes(sessionId),
           api.getBilling(sessionId),
           api.getPatientSummary(sessionId),
         ]);
+
+        let resSoap = resSoapRaw;
+        let resSummary = resSummaryRaw;
+
+        const soapData = resSoap as SoapData | null;
+        if (!soapData?.subjective?.chiefComplaint) {
+          const generated = await api.generateSoapNotes(sessionId);
+          if (generated) resSoap = generated;
+        }
+
+        const summaryData = resSummary as SummaryData | null;
+        if (!summaryData?.summary?.trim()) {
+          const generated = await api.generatePatientSummary(sessionId);
+          if (generated) resSummary = generated;
+        }
 
         if (resSoap) setSoap(resSoap as SoapData);
         if (resBilling) setBilling(resBilling as BillingData);
@@ -205,33 +220,32 @@ export default function Documentation() {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-24 w-full min-w-0 max-w-[1000px] mx-auto overflow-x-hidden">
-      {/* Session Header */}
-      <div>
-        <div className="flex items-center gap-4 mb-4">
-          <Link href="/">
+    <div className="flex flex-col gap-4 md:gap-6 pb-24 w-full min-w-0 max-w-full mx-auto overflow-x-hidden box-border">
+      <div className="min-w-0 w-full">
+        <div className="flex items-start gap-3 mb-4 min-w-0">
+          <Link href="/" className="shrink-0">
             <Button variant="ghost" size="icon" className="text-medexa-gray-900 rounded-full hover:bg-medexa-gray-100">
               <ChevronLeft className="h-6 w-6" />
             </Button>
           </Link>
-          <h1 className="text-2xl md:text-3xl font-bold text-medexa-gray-900 flex flex-wrap items-center gap-3">
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-medexa-gray-900 flex flex-wrap items-center gap-2 min-w-0 break-words">
             Therapeutic Therapy Session
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-medexa-blue tracking-wide bg-medexa-blue-light/50 px-3 py-1 rounded-full">
+            <span className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-medexa-blue tracking-wide bg-medexa-blue-light/50 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
               <span className="h-1.5 w-1.5 rounded-full bg-medexa-blue"></span>
               Medexa Summarized
             </span>
           </h1>
         </div>
- 
-        <div className="flex flex-wrap items-center gap-4 pl-0 md:pl-14 text-sm font-semibold text-medexa-gray-900">
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm font-semibold text-medexa-gray-900 min-w-0">
           <span>Finalized Status: <span className="text-medexa-green font-bold uppercase">Complete</span></span>
           <span className="text-medexa-gray-500 font-medium">Session ID: <span className="text-medexa-gray-900 font-bold">#{sessionId.slice(0, 8)}</span></span>
           <span className="text-medexa-gray-500 font-medium">Duration: <span className="text-medexa-gray-900 font-bold">{billing?.sessionTime || "00:00"}</span></span>
           <span className="text-medexa-gray-500 font-medium">Unit(s): <span className="text-medexa-gray-900 font-bold">{billing?.units || "0"}</span></span>
         </div>
       </div>
- 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0 mt-2">
+
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0 max-w-full">
         <div className="flex flex-col gap-4 border-b border-medexa-gray-200 pb-4 mb-6">
           <div className="w-full overflow-x-auto hide-scrollbar -mx-1 px-1">
             <TabsList className="bg-transparent h-auto p-0 gap-2 inline-flex w-max min-w-full sm:min-w-0">
@@ -550,14 +564,14 @@ export default function Documentation() {
         </TabsContent>
 
         {/* Patient Summary Tab */}
-        <TabsContent value="summary" className="mt-0 outline-none flex flex-col gap-4 min-w-0 w-full">
-          <div className="flex flex-wrap justify-end gap-2 w-full">
+        <TabsContent value="summary" className="mt-0 outline-none flex flex-col gap-3 min-w-0 w-full max-w-full overflow-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-full">
             {isEditingSummary ? (
-              <Button onClick={handleSaveSummary} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold text-sm flex-1 sm:flex-none min-w-0">
+              <Button onClick={handleSaveSummary} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold text-sm w-full">
                 <Save className="h-4 w-4 mr-2 shrink-0" /> Save Summary
               </Button>
             ) : (
-              <Button onClick={() => setIsEditingSummary(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 text-sm flex-1 sm:flex-none min-w-0">
+              <Button onClick={() => setIsEditingSummary(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 text-sm w-full">
                 <Edit2 className="h-4 w-4 mr-2 shrink-0" /> Edit Summary
               </Button>
             )}
@@ -565,7 +579,7 @@ export default function Documentation() {
               onClick={handleSendSummary}
               disabled={isSendingSummary || summary?.sent}
               variant="ghost"
-              className={`rounded-full font-bold px-4 h-10 text-sm flex-1 sm:flex-none min-w-0 ${summary?.sent ? "text-medexa-green bg-medexa-green/10" : "text-medexa-blue hover:bg-medexa-blue-light"}`}
+              className={`rounded-full font-bold px-4 h-10 text-sm w-full ${summary?.sent ? "text-medexa-green bg-medexa-green/10" : "text-medexa-blue hover:bg-medexa-blue-light"}`}
             >
               {isSendingSummary ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin shrink-0" />
@@ -578,11 +592,11 @@ export default function Documentation() {
             </Button>
           </div>
 
-          <Card className="p-4 md:p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[300px] w-full min-w-0 overflow-hidden">
+          <Card className="p-4 md:p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[280px] w-full min-w-0 max-w-full overflow-hidden box-border">
             <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Session Summary Note</h2>
             {isEditingSummary ? (
               <Textarea
-                className="w-full min-w-0 flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue break-words"
+                className="w-full min-w-0 max-w-full flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-sm sm:text-base leading-relaxed outline-none focus:border-medexa-blue break-words box-border"
                 value={summary?.summary || ""}
                 onChange={(e) => setSummary((prev) => {
                   if (!prev) return null;
@@ -590,7 +604,7 @@ export default function Documentation() {
                 })}
               />
             ) : (
-              <div className="flex-1 text-medexa-gray-900 text-base leading-relaxed whitespace-pre-wrap break-words overflow-wrap-anywhere min-w-0">
+              <div className="flex-1 text-medexa-gray-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full">
                 {summary?.summary || "No summary text available."}
               </div>
             )}
