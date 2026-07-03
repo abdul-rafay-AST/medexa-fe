@@ -19,7 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} bg-medexa-gray-50 min-h-screen antialiased`}>
         <AppHeader />
-        <main className="max-w-[1200px] mx-auto px-4 md:px-6 py-6 md:py-8">
+        <main className="w-full max-w-[1200px] mx-auto px-4 sm:px-6 py-6 md:py-8 overflow-x-hidden">
           {children}
         </main>
       </body>

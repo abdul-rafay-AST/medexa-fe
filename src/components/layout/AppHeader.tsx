@@ -17,7 +17,7 @@ export function AppHeader() {
           </Link>
         </div>
         
-        <div className="flex flex-1 items-center justify-center px-6">
+        <div className="flex flex-1 items-center justify-center px-2 md:px-6 hidden sm:flex">
           <div className="w-full max-w-md relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-medexa-gray-500" />
             <input

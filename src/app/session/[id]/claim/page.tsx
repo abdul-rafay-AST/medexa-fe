@@ -128,7 +128,7 @@ export default function ClaimDocument() {
   const diagnosisCodes = claim.diagnosisCodes || [];
 
   return (
-    <div className="flex flex-col gap-8 pb-24 max-w-[1000px] mx-auto">
+    <div className="flex flex-col gap-8 pb-24 max-w-[1000px] mx-auto w-full px-4 md:px-0">
       {/* Header */}
       <div>
         <div className="flex justify-between items-center mb-6">
@@ -172,7 +172,7 @@ export default function ClaimDocument() {
         </div>
 
         {/* Patient Meta Row */}
-        <div className="flex flex-wrap items-start md:items-center gap-x-12 gap-y-4 text-sm font-semibold text-medexa-gray-900 border-b border-medexa-gray-200 pb-6 ml-2 md:ml-12">
+        <div className="flex flex-wrap items-start md:items-center gap-x-12 gap-y-4 text-sm font-semibold text-medexa-gray-900 border-b border-medexa-gray-200 pb-6 px-2 md:px-12">
           <div>
             <span className="text-medexa-gray-500 font-medium block mb-1 text-xs">Patient</span>
             <span className="font-bold text-base">{patientMeta.patient || "Not set"}</span>

@@ -205,7 +205,7 @@ export default function Documentation() {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-24 max-w-[1000px] mx-auto">
+    <div className="flex flex-col gap-6 pb-24 max-w-[1000px] mx-auto w-full px-4 md:px-0">
       {/* Session Header */}
       <div>
         <div className="flex items-center gap-4 mb-4">
@@ -214,7 +214,7 @@ export default function Documentation() {
               <ChevronLeft className="h-6 w-6" />
             </Button>
           </Link>
-          <h1 className="text-2xl md:text-3xl font-bold text-medexa-gray-900 flex items-center gap-3">
+          <h1 className="text-2xl md:text-3xl font-bold text-medexa-gray-900 flex flex-wrap items-center gap-3">
             Therapeutic Therapy Session
             <span className="flex items-center gap-1.5 text-sm font-semibold text-medexa-blue tracking-wide bg-medexa-blue-light/50 px-3 py-1 rounded-full">
               <span className="h-1.5 w-1.5 rounded-full bg-medexa-blue"></span>
@@ -222,21 +222,21 @@ export default function Documentation() {
             </span>
           </h1>
         </div>
-
-        <div className="flex flex-wrap items-center gap-8 pl-14 text-sm font-semibold text-medexa-gray-900">
+ 
+        <div className="flex flex-wrap items-center gap-4 pl-0 md:pl-14 text-sm font-semibold text-medexa-gray-900">
           <span>Finalized Status: <span className="text-medexa-green font-bold uppercase">Complete</span></span>
           <span className="text-medexa-gray-500 font-medium">Session ID: <span className="text-medexa-gray-900 font-bold">#{sessionId.slice(0, 8)}</span></span>
           <span className="text-medexa-gray-500 font-medium">Duration: <span className="text-medexa-gray-900 font-bold">{billing?.sessionTime || "00:00"}</span></span>
           <span className="text-medexa-gray-500 font-medium">Unit(s): <span className="text-medexa-gray-900 font-bold">{billing?.units || "0"}</span></span>
         </div>
       </div>
-
+ 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full mt-2">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-medexa-gray-200 pb-4 mb-6 gap-4">
-          <TabsList className="bg-transparent h-auto p-0 gap-2">
+          <TabsList className="bg-transparent h-auto p-0 gap-2 flex flex-wrap md:flex-row w-full justify-start">
             <TabsTrigger
               value="soap"
-              className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
+              className="rounded-full px-4 md:px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
             >
               SOAP Notes
             </TabsTrigger>
@@ -286,7 +286,7 @@ export default function Documentation() {
                   <Textarea
                     value={soap.subjective.chiefComplaint}
                     onChange={(e) => handleSoapChange("subjective", "chiefComplaint", e.target.value)}
-                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                    className="w-full rounded-xl border-medexa-gray-200 min-h-[100px]"
                   />
                 ) : (
                   <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
@@ -337,7 +337,7 @@ export default function Documentation() {
                   <Textarea
                     value={soap.objective.observationNotes}
                     onChange={(e) => handleSoapChange("objective", "observationNotes", e.target.value)}
-                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                    className="w-full rounded-xl border-medexa-gray-200 min-h-[100px]"
                   />
                 ) : (
                   <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
@@ -402,7 +402,7 @@ export default function Documentation() {
                   <Textarea
                     value={soap.assessment.diagnosisSummary}
                     onChange={(e) => handleSoapChange("assessment", "diagnosisSummary", e.target.value)}
-                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                    className="w-full rounded-xl border-medexa-gray-200 min-h-[100px]"
                   />
                 ) : (
                   <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
@@ -453,7 +453,7 @@ export default function Documentation() {
                   <Textarea
                     value={soap.plan.followUpPlan}
                     onChange={(e) => handleSoapChange("plan", "followUpPlan", e.target.value)}
-                    className="rounded-xl border-medexa-gray-200 min-h-[100px]"
+                    className="w-full rounded-xl border-medexa-gray-200 min-h-[100px]"
                   />
                 ) : (
                   <div className="p-4 rounded-xl border border-medexa-gray-200 bg-white text-medexa-gray-900 text-sm leading-relaxed whitespace-pre-wrap">
@@ -580,7 +580,7 @@ export default function Documentation() {
             <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Session Summary Note</h2>
             {isEditingSummary ? (
               <Textarea
-                className="flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue"
+                className="w-full flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue"
                 value={summary?.summary || ""}
                 onChange={(e) => setSummary((prev) => {
                   if (!prev) return null;

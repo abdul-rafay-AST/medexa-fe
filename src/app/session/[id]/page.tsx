@@ -178,7 +178,7 @@ export default function LiveSession() {
   }
 
   return (
-    <div className="flex flex-col gap-6 relative pb-24">
+    <div className="flex flex-col gap-6 relative pb-24 w-full px-4 md:px-0">
       {/* Patient header — 2 Screen */}
       <div className="flex items-center gap-4">
         <Link href="/">
@@ -190,7 +190,7 @@ export default function LiveSession() {
           <AvatarImage src={session.avatar || `https://i.pravatar.cc/150?u=${session.patientName}`} />
           <AvatarFallback>{session.patientName.slice(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
-        <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-8 flex-1">
+        <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-8 flex-1">
           <div>
             <h1 className="text-2xl font-bold text-medexa-gray-900">{session.patientName}</h1>
             <div className="flex gap-6 mt-1 text-sm">
@@ -208,17 +208,17 @@ export default function LiveSession() {
               )}
             </div>
           </div>
-          <div className="flex gap-6 text-sm ml-auto text-right">
+          <div className="flex flex-wrap gap-4 text-sm md:ml-auto md:text-right mt-2 md:mt-0">
             {session.mrnNumber && (
               <div>
-                <span className="text-medexa-gray-500 block text-xs text-left">MRN Number</span>
+                <span className="text-medexa-gray-500 block text-xs text-left md:text-right">MRN Number</span>
                 <span className="font-bold text-medexa-gray-900">{session.mrnNumber}</span>
               </div>
             )}
             {session.payorSource && (
               <div>
-                <span className="text-medexa-gray-500 block text-xs text-left">Payor Source</span>
-                <span className="font-bold text-medexa-gray-900 flex items-center gap-1 justify-end">
+                <span className="text-medexa-gray-500 block text-xs text-left md:text-right">Payor Source</span>
+                <span className="font-bold text-medexa-gray-900 flex items-center gap-1 justify-start md:justify-end">
                   <span className="h-2 w-2 rounded-full border-2 border-medexa-blue bg-white"></span> {session.payorSource}
                 </span>
               </div>
@@ -227,15 +227,15 @@ export default function LiveSession() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 flex flex-col gap-6">
-          {/* Recording bar — 2 Screen */}
+          {/* Recording bar */}
           <Card
-            className="p-6 rounded-3xl flex items-center justify-between border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)] cursor-pointer"
+            className="p-4 md:p-6 rounded-3xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)] cursor-pointer"
             onClick={() => !isListening && isSupported && startRecording(elapsed)}
           >
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-1 h-12 w-16">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1 h-12 w-12 shrink-0">
                 {[4, 8, 6, 12, 10, 5, 8, 4].map((h, i) => (
                   <div
                     key={i}
@@ -246,14 +246,14 @@ export default function LiveSession() {
               </div>
               <div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-bold text-medexa-blue tracking-tight">{formatElapsed(elapsed)}</span>
+                  <span className="text-3xl md:text-4xl font-bold text-medexa-blue tracking-tight">{formatElapsed(elapsed)}</span>
                   <span className="text-sm font-semibold text-medexa-gray-500">/ {units || 1} Unit{units === 1 ? "" : "s"}</span>
                 </div>
                 <p className="text-sm text-medexa-gray-500 mt-1">
                   {isListening ? (
                     <>Say <span className="font-bold text-medexa-gray-900">Pause</span> Recording..</>
                   ) : isSupported ? (
-                    <>Tap here or <span className="font-bold text-medexa-gray-900">Resume</span> below to record</>
+                    <>Tap to <span className="font-bold text-medexa-gray-900">Start</span> Recording</>
                   ) : (
                     "Use Chrome or Edge for voice capture"
                   )}
@@ -261,7 +261,7 @@ export default function LiveSession() {
                 {speechError && <p className="text-xs text-red-500 mt-1">{speechError}</p>}
               </div>
             </div>
-            <div className="text-right flex flex-col items-end">
+            <div className="text-left sm:text-right flex flex-col items-start sm:items-end shrink-0">
               <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 Unit {nextUnitNumber} at <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
@@ -273,49 +273,46 @@ export default function LiveSession() {
           </Card>
 
           {(transcript || interimTranscript) && (
-            <div className="pl-4 pr-4 py-2 italic text-sm text-medexa-gray-500">
+            <div className="px-4 py-2 italic text-sm text-medexa-gray-500 break-words">
               &ldquo;{transcript} <span className="text-medexa-gray-400">{interimTranscript}</span>&rdquo;
             </div>
           )}
 
-          {/* Insights timeline — 2 Screen */}
-          <div className="pl-2 relative mt-4">
-            <div className="absolute left-6 top-2 bottom-0 w-px border-l border-dashed border-medexa-gray-200"></div>
-            <p className="text-sm text-medexa-gray-500 mb-6 pl-4">Medexa is Processing for Insights...</p>
-
-            <div className="flex flex-col gap-6 relative">
+          {/* Insights timeline */}
+          <div className="relative mt-2">
+            <p className="text-sm text-medexa-gray-500 mb-4 pl-2">Medexa is Processing for Insights...</p>
+            <div className="flex flex-col gap-4 relative">
               {insights.map((insight, idx) => (
-                <div key={insight.id || idx} className="flex relative items-start gap-6">
-                  <div className="w-10 flex-shrink-0 flex justify-end mt-4">
-                    <div className="h-6 w-6 border-b border-l border-dashed border-medexa-gray-300 rounded-bl-xl"></div>
-                  </div>
+                <div key={insight.id || idx} className="flex flex-col gap-2">
                   {insight.type === "protocol" ? (
-                    <Card className="p-4 flex-1 rounded-2xl border-transparent shadow-lg shadow-medexa-green/10 ring-1 ring-medexa-blue/10 bg-white">
+                    <Card className="p-4 rounded-2xl border-transparent shadow-lg shadow-medexa-green/10 ring-1 ring-medexa-blue/10 bg-white">
                       <Badge className="bg-medexa-blue hover:bg-medexa-blue text-white rounded-full px-3 mb-2 font-semibold tracking-wide">
                         {insight.label || "Protocol Ask"}
                       </Badge>
-                      <p className="font-medium text-medexa-gray-900">&ldquo;{insight.question}&rdquo;</p>
+                      <p className="font-medium text-medexa-gray-900 break-words">&ldquo;{insight.question}&rdquo;</p>
                     </Card>
                   ) : (
-                    <div className="flex-1 flex flex-col gap-3">
-                      <div className="flex justify-between items-center">
-                        <Badge variant="outline" className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize">
+                    <Card className="p-4 rounded-2xl border border-medexa-gray-100 shadow-sm bg-white">
+                      <div className="flex justify-between items-center mb-2">
+                        <Badge variant="outline" className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize text-xs">
                           {insight.type === "billing" ? "Billing" : insight.label || "Detected"}
                         </Badge>
-                        <button type="button" className="text-sm font-semibold text-medexa-gray-500 flex items-center gap-1 hover:text-medexa-gray-900 transition-colors">
-                          <X className="h-4 w-4" /> Ignore
+                        <button type="button" className="text-xs font-semibold text-medexa-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors">
+                          <X className="h-3 w-3" /> Ignore
                         </button>
                       </div>
-                      <p className="font-medium text-medexa-gray-900">{insight.description || insight.question}</p>
+                      <p className="font-medium text-medexa-gray-900 text-sm break-words">{insight.description || insight.question}</p>
                       {insight.status === "pending" && (
-                        <SwipeToApprove onApprove={() => api.approveInsight(sessionId, insight.id || "").then(refreshLiveData)} />
+                        <div className="mt-3">
+                          <SwipeToApprove onApprove={() => api.approveInsight(sessionId, insight.id || "").then(refreshLiveData)} />
+                        </div>
                       )}
-                    </div>
+                    </Card>
                   )}
                 </div>
               ))}
               {insights.length === 0 && (
-                <div className="pl-14 text-sm text-medexa-gray-400">
+                <div className="text-sm text-medexa-gray-400 pl-2">
                   Start recording and describe the session — insights will appear here.
                 </div>
               )}
@@ -323,37 +320,36 @@ export default function LiveSession() {
           </div>
         </div>
 
-        {/* Suggestions — 2 Screen */}
-        <div>
-          <Card className="p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100 sticky top-24">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="font-semibold text-medexa-gray-900">Suggestions</h2>
-              <span className="font-bold text-medexa-gray-900">{suggestions.length}</span>
+        {/* Suggestions panel — shows below on mobile, right column on desktop */}
+        <div className="lg:sticky lg:top-24 lg:self-start">
+          <Card className="p-4 md:p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-semibold text-medexa-gray-900">Live Suggestions</h2>
+              <span className="h-6 w-6 rounded-full bg-medexa-blue text-white text-xs flex items-center justify-center font-bold">{suggestions.length}</span>
             </div>
-
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
               {suggestions.map((suggestion) => (
-                <Card key={suggestion.id} className="p-4 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm relative">
+                <Card key={suggestion.id} className="p-3 rounded-2xl bg-white border border-medexa-gray-200 shadow-sm relative">
                   {suggestion.applied ? (
                     <>
                       <div className="flex items-center gap-2 mb-2">
                         <span className="h-2 w-2 rounded-full bg-medexa-green animate-pulse" />
-                        <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900">
+                        <Badge className="bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-full truncate">
                           {suggestion.title}
                         </Badge>
                       </div>
-                      <p className="text-sm text-medexa-gray-900 font-medium">{suggestion.text}</p>
+                      <p className="text-sm text-medexa-gray-900 font-medium break-words">{suggestion.text}</p>
                     </>
                   ) : (
                     <>
-                      <Badge className="absolute -top-3 left-4 bg-medexa-gray-900 text-white rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-gray-900 max-w-[90%] truncate">
+                      <Badge className="bg-medexa-blue/10 text-medexa-blue rounded-full px-3 py-0.5 text-xs font-bold hover:bg-medexa-blue/10 max-w-full truncate mb-2">
                         {suggestion.title}
                       </Badge>
-                      <p className="text-sm text-medexa-gray-900 mt-2 mb-4 font-medium">{suggestion.text}</p>
-                      <div className="flex justify-end border-t pt-3">
+                      <p className="text-sm text-medexa-gray-900 mb-3 font-medium break-words">{suggestion.text}</p>
+                      <div className="flex justify-end border-t pt-2">
                         <Button
                           variant="ghost"
-                          className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent hover:text-medexa-blue"
+                          className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent hover:text-medexa-blue text-sm"
                           onClick={() => handleApplySuggestion(suggestion.id)}
                         >
                           <Check className="h-4 w-4" /> Apply
@@ -364,32 +360,34 @@ export default function LiveSession() {
                 </Card>
               ))}
               {suggestions.length === 0 && (
-                <div className="text-sm text-medexa-gray-400">No suggestions yet.</div>
+                <div className="text-sm text-medexa-gray-400">No suggestions yet. Start speaking to see AI suggestions.</div>
               )}
             </div>
           </Card>
         </div>
       </div>
 
-      {/* Floating action bar — 2 Screen */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.1)] border border-medexa-gray-100 flex items-center gap-2 z-50">
-        <Button
-          variant={isListening ? "ghost" : "default"}
-          className={`rounded-full px-6 h-12 font-semibold ${isListening ? "text-medexa-blue hover:bg-medexa-blue-light" : "bg-medexa-blue text-white hover:bg-blue-700"}`}
-          onClick={toggleRecording}
-        >
-          <div className={`h-8 w-8 rounded-full flex items-center justify-center mr-2 ${isListening ? "bg-medexa-blue-light" : "bg-white/20"}`}>
-            {isListening ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          </div>
-          {isListening ? "Pause" : "Resume"}
-        </Button>
-        <div className="w-px h-8 bg-medexa-gray-200 mx-2"></div>
-        <Button onClick={handleStop} variant="ghost" className="rounded-full px-6 h-12 font-semibold text-medexa-gray-900 hover:bg-medexa-gray-50">
-          <div className="h-8 w-8 rounded-full bg-medexa-blue text-white flex items-center justify-center mr-2">
-            <Square className="h-3 w-3 fill-current" />
-          </div>
-          Stop
-        </Button>
+      {/* Floating action bar — constrained width for mobile */}
+      <div className="fixed bottom-6 left-0 right-0 flex justify-center z-50 px-4">
+        <div className="bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-medexa-gray-100 flex items-center gap-1 max-w-xs w-full">
+          <Button
+            variant={isListening ? "ghost" : "default"}
+            className={`rounded-full px-4 h-11 font-semibold flex-1 ${isListening ? "text-medexa-blue hover:bg-medexa-blue-light" : "bg-medexa-blue text-white hover:bg-blue-700"}`}
+            onClick={toggleRecording}
+          >
+            <div className={`h-7 w-7 rounded-full flex items-center justify-center mr-2 ${isListening ? "bg-medexa-blue-light" : "bg-white/20"}`}>
+              {isListening ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            </div>
+            {isListening ? "Pause" : "Resume"}
+          </Button>
+          <div className="w-px h-8 bg-medexa-gray-200"></div>
+          <Button onClick={handleStop} variant="ghost" className="rounded-full px-4 h-11 font-semibold text-medexa-gray-900 hover:bg-medexa-gray-50 flex-1">
+            <div className="h-7 w-7 rounded-full bg-medexa-blue text-white flex items-center justify-center mr-2">
+              <Square className="h-3 w-3 fill-current" />
+            </div>
+            Stop
+          </Button>
+        </div>
       </div>
     </div>
   );
