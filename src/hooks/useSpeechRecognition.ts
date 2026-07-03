@@ -47,6 +47,17 @@ export interface UseSpeechRecognitionReturn {
   resetTranscript: () => void;
 }
 
+function appendUnique(prev: string, chunk: string): string {
+  const text = chunk.trim();
+  if (!text) return prev;
+  const normalizedPrev = prev.trimEnd().toLowerCase();
+  const normalizedNew = text.toLowerCase();
+  if (normalizedPrev.endsWith(normalizedNew)) return prev;
+  if (normalizedPrev.includes(normalizedNew) && normalizedNew.length > 12) return prev;
+  const spacer = prev && !prev.endsWith(" ") ? " " : "";
+  return prev + spacer + text + " ";
+}
+
 export function useSpeechRecognition(
   onChunkFinalized?: (chunk: string) => void
 ): UseSpeechRecognitionReturn {
@@ -56,11 +67,11 @@ export function useSpeechRecognition(
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
-  // Use a Set of normalized phrase strings to prevent any duplicate from being processed
-  const seenFinalPhrases = useRef<Set<string>>(new Set());
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const sentChunksRef = useRef<Set<string>>(new Set());
+  const buildRecognitionRef = useRef<(() => SpeechRecognition | null) | null>(null);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -80,87 +91,91 @@ export function useSpeechRecognition(
 
     setIsSupported(true);
 
-    const recognition = new SpeechRecognitionCtor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+    const build = (): SpeechRecognition | null => {
+      const recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let currentInterim = "";
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let currentInterim = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const result = event.results[i];
+          const text = result[0].transcript.trim();
+          if (!text) continue;
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const result = event.results[i];
-        const text = result[0].transcript.trim();
-
-        if (!text) continue;
-
-        if (result.isFinal) {
-          // Normalize to lowercase for dedup key, but keep original for display
-          const dedupeKey = text.toLowerCase().replace(/\s+/g, " ");
-          if (!seenFinalPhrases.current.has(dedupeKey)) {
-            seenFinalPhrases.current.add(dedupeKey);
-            setTranscript((prev) => prev + text + " ");
+          if (result.isFinal) {
+            const dedupeKey = text.toLowerCase().replace(/\s+/g, " ");
+            if (sentChunksRef.current.has(dedupeKey)) continue;
+            sentChunksRef.current.add(dedupeKey);
+            setTranscript((prev) => appendUnique(prev, text));
             onChunkRef.current?.(text);
+          } else {
+            currentInterim += result[0].transcript;
           }
-        } else {
-          currentInterim += result[0].transcript;
         }
-      }
+        setInterimTranscript(currentInterim);
+      };
 
-      setInterimTranscript(currentInterim);
-    };
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        if (event.error === "no-speech" || event.error === "aborted") return;
+        if (event.error === "not-allowed") {
+          shouldListenRef.current = false;
+          setIsListening(false);
+          setError("Microphone access denied.");
+        } else {
+          setError(`Speech error: ${event.error}`);
+        }
+      };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      if (event.error === "no-speech" || event.error === "aborted") return;
-      console.error("Speech recognition error:", event.error);
-      if (event.error === "not-allowed") {
-        shouldListenRef.current = false;
-        setIsListening(false);
-        setError("Microphone access denied. Please allow microphone access and try again.");
-      } else {
-        setError(`Speech error: ${event.error}`);
-      }
-    };
+      recognition.onstart = () => {
+        setError(null);
+        setIsListening(true);
+      };
 
-    recognition.onstart = () => {
-      setError(null);
-      setIsListening(true);
-    };
-
-    recognition.onend = () => {
-      if (shouldListenRef.current) {
-        // Small delay before restart to prevent rapid-restart loops on mobile Safari/Chrome
+      recognition.onend = () => {
+        if (!shouldListenRef.current) {
+          setIsListening(false);
+          return;
+        }
         setTimeout(() => {
-          if (shouldListenRef.current && recognitionRef.current) {
+          if (!shouldListenRef.current) return;
+          const next = buildRecognitionRef.current?.();
+          if (next) {
+            recognitionRef.current = next;
             try {
-              recognitionRef.current.start();
-            } catch (_e) {
+              next.start();
+            } catch {
               setIsListening(false);
             }
           }
-        }, 150);
-      } else {
-        setIsListening(false);
-      }
+        }, 250);
+      };
+
+      return recognition;
     };
 
-    recognitionRef.current = recognition;
+    buildRecognitionRef.current = build;
+    recognitionRef.current = build();
 
     return () => {
       shouldListenRef.current = false;
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onstart = null;
-      recognition.onend = null;
-      try { recognition.stop(); } catch (_e) { /* ignore */ }
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
       recognitionRef.current = null;
     };
   }, []);
 
   const startListening = useCallback(() => {
+    if (!recognitionRef.current && buildRecognitionRef.current) {
+      recognitionRef.current = buildRecognitionRef.current();
+    }
     const recognition = recognitionRef.current;
     if (!recognition) {
-      setError("Speech recognition is not ready. Try again.");
+      setError("Speech recognition is not ready.");
       return;
     }
     shouldListenRef.current = true;
@@ -168,27 +183,29 @@ export function useSpeechRecognition(
       recognition.start();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("already started")) {
-        setIsListening(true);
-        return;
+      if (!msg.includes("already started")) {
+        setError("Could not start recording.");
+        shouldListenRef.current = false;
+        setIsListening(false);
       }
-      console.error("Failed to start recognition:", e);
-      setError("Could not start recording. Please try again.");
-      shouldListenRef.current = false;
-      setIsListening(false);
     }
   }, []);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
-    try { recognitionRef.current?.stop(); } catch (_e) { /* ignore */ }
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
     setIsListening(false);
+    setInterimTranscript("");
   }, []);
 
   const resetTranscript = useCallback(() => {
     setTranscript("");
     setInterimTranscript("");
-    seenFinalPhrases.current.clear();
+    sentChunksRef.current.clear();
   }, []);
 
   return {

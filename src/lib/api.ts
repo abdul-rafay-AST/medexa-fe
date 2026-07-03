@@ -141,6 +141,18 @@ class ApiClient {
     });
   }
 
+  async approveInsight(sessionId: string, insightId: string): Promise<ApiInsight | null> {
+    return this.fetch<ApiInsight>(`/sessions/${sessionId}/insights/${insightId}/approve`, {
+      method: "POST",
+    });
+  }
+
+  async ignoreInsight(sessionId: string, insightId: string): Promise<ApiInsight | null> {
+    return this.fetch<ApiInsight>(`/sessions/${sessionId}/insights/${insightId}/ignore`, {
+      method: "POST",
+    });
+  }
+
   async finalizeSession(
     sessionId: string,
     transcript: string,

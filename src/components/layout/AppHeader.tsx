@@ -6,8 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 export function AppHeader() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background">
-      <div className="flex h-16 items-center px-4 md:px-6">
-        <div className="flex items-center gap-4">
+      <div className="flex h-14 md:h-16 items-center px-3 md:px-6 gap-2 min-w-0">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
           <Button variant="ghost" size="icon" className="shrink-0 bg-medexa-gray-50 text-medexa-gray-900">
             <Menu className="h-5 w-5" />
             <span className="sr-only">Toggle menu</span>
@@ -28,7 +28,7 @@ export function AppHeader() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0 ml-auto">
           <Button variant="ghost" size="icon" className="text-medexa-blue relative">
             <Bell className="h-5 w-5" />
             <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full bg-medexa-blue" />
@@ -39,7 +39,7 @@ export function AppHeader() {
             <Globe className="h-3.5 w-3.5 text-medexa-gray-500" /> Eng
           </Button>
           
-          <div className="flex items-center gap-3 border-l pl-4 ml-2">
+          <div className="flex items-center gap-2 md:gap-3 md:border-l md:pl-4 md:ml-2">
             <Avatar className="h-8 w-8">
               <AvatarImage src="https://i.pravatar.cc/150?u=sarah" alt="@dr.sarah" />
               <AvatarFallback>SM</AvatarFallback>

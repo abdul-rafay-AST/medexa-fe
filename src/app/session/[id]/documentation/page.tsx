@@ -205,7 +205,7 @@ export default function Documentation() {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-24 max-w-[1000px] mx-auto w-full px-4 md:px-0">
+    <div className="flex flex-col gap-6 pb-24 w-full min-w-0 max-w-[1000px] mx-auto overflow-x-hidden">
       {/* Session Header */}
       <div>
         <div className="flex items-center gap-4 mb-4">
@@ -231,31 +231,33 @@ export default function Documentation() {
         </div>
       </div>
  
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full mt-2">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-medexa-gray-200 pb-4 mb-6 gap-4">
-          <TabsList className="bg-transparent h-auto p-0 gap-2 flex flex-wrap md:flex-row w-full justify-start">
-            <TabsTrigger
-              value="soap"
-              className="rounded-full px-4 md:px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
-            >
-              SOAP Notes
-            </TabsTrigger>
-            <TabsTrigger
-              value="billing"
-              className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
-            >
-              Billing Intelligence
-            </TabsTrigger>
-            <TabsTrigger
-              value="summary"
-              className="rounded-full px-6 py-2.5 data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold"
-            >
-              Patient Summary
-            </TabsTrigger>
-          </TabsList>
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0 mt-2">
+        <div className="flex flex-col gap-4 border-b border-medexa-gray-200 pb-4 mb-6">
+          <div className="w-full overflow-x-auto hide-scrollbar -mx-1 px-1">
+            <TabsList className="bg-transparent h-auto p-0 gap-2 inline-flex w-max min-w-full sm:min-w-0">
+              <TabsTrigger
+                value="soap"
+                className="rounded-full px-4 md:px-6 py-2.5 whitespace-nowrap data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold text-sm"
+              >
+                SOAP Notes
+              </TabsTrigger>
+              <TabsTrigger
+                value="billing"
+                className="rounded-full px-4 md:px-6 py-2.5 whitespace-nowrap data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold text-sm"
+              >
+                Billing Intelligence
+              </TabsTrigger>
+              <TabsTrigger
+                value="summary"
+                className="rounded-full px-4 md:px-6 py-2.5 whitespace-nowrap data-[state=active]:bg-medexa-blue-light data-[state=active]:text-medexa-blue data-[state=active]:border-medexa-blue border border-transparent text-medexa-gray-500 font-semibold text-sm"
+              >
+                Patient Summary
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          <Link href={`/session/${sessionId}/claim?tab=${activeTab}`}>
-            <Button variant="ghost" className="text-medexa-blue font-bold text-base hover:bg-medexa-blue-light rounded-full">
+          <Link href={`/session/${sessionId}/claim?tab=${activeTab}`} className="w-full sm:w-auto">
+            <Button variant="ghost" className="text-medexa-blue font-bold text-sm md:text-base hover:bg-medexa-blue-light rounded-full w-full sm:w-auto justify-center">
               <Check className="mr-2 h-5 w-5 stroke-[3]" /> Create Claim-Document
             </Button>
           </Link>
@@ -548,39 +550,39 @@ export default function Documentation() {
         </TabsContent>
 
         {/* Patient Summary Tab */}
-        <TabsContent value="summary" className="mt-0 outline-none flex flex-col gap-6">
-          <div className="flex justify-end gap-2">
+        <TabsContent value="summary" className="mt-0 outline-none flex flex-col gap-4 min-w-0 w-full">
+          <div className="flex flex-wrap justify-end gap-2 w-full">
             {isEditingSummary ? (
-              <Button onClick={handleSaveSummary} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold">
-                <Save className="h-4 w-4 mr-2" /> Save Summary
+              <Button onClick={handleSaveSummary} className="rounded-full bg-medexa-blue text-white hover:bg-blue-700 font-semibold text-sm flex-1 sm:flex-none min-w-0">
+                <Save className="h-4 w-4 mr-2 shrink-0" /> Save Summary
               </Button>
             ) : (
-              <Button onClick={() => setIsEditingSummary(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100">
-                <Edit2 className="h-4 w-4 mr-2" /> Edit Summary
+              <Button onClick={() => setIsEditingSummary(true)} variant="outline" className="rounded-full border-medexa-gray-200 text-medexa-gray-900 font-semibold hover:bg-medexa-gray-100 text-sm flex-1 sm:flex-none min-w-0">
+                <Edit2 className="h-4 w-4 mr-2 shrink-0" /> Edit Summary
               </Button>
             )}
             <Button
               onClick={handleSendSummary}
               disabled={isSendingSummary || summary?.sent}
               variant="ghost"
-              className={`rounded-full font-bold px-6 h-10 ${summary?.sent ? "text-medexa-green bg-medexa-green/10" : "text-medexa-blue hover:bg-medexa-blue-light"}`}
+              className={`rounded-full font-bold px-4 h-10 text-sm flex-1 sm:flex-none min-w-0 ${summary?.sent ? "text-medexa-green bg-medexa-green/10" : "text-medexa-blue hover:bg-medexa-blue-light"}`}
             >
               {isSendingSummary ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 mr-2 animate-spin shrink-0" />
               ) : summary?.sent ? (
-                <Check className="h-4 w-4 mr-2 stroke-[2.5]" />
+                <Check className="h-4 w-4 mr-2 stroke-[2.5] shrink-0" />
               ) : (
-                <Send className="h-4 w-4 mr-2 stroke-[2]" />
+                <Send className="h-4 w-4 mr-2 stroke-[2] shrink-0" />
               )}
-              {summary?.sent ? "Sent to Patient" : "Send to Patient"}
+              <span className="truncate">{summary?.sent ? "Sent to Patient" : "Send to Patient"}</span>
             </Button>
           </div>
 
-          <Card className="p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[400px]">
+          <Card className="p-4 md:p-6 rounded-3xl border-medexa-gray-100 shadow-sm bg-white flex flex-col min-h-[300px] w-full min-w-0 overflow-hidden">
             <h2 className="text-lg font-semibold text-medexa-gray-500 mb-4">Session Summary Note</h2>
             {isEditingSummary ? (
               <Textarea
-                className="w-full flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue"
+                className="w-full min-w-0 flex-1 resize-none border border-medexa-gray-200 rounded-xl p-4 text-medexa-gray-900 text-base leading-relaxed outline-none focus:border-medexa-blue break-words"
                 value={summary?.summary || ""}
                 onChange={(e) => setSummary((prev) => {
                   if (!prev) return null;
@@ -588,7 +590,7 @@ export default function Documentation() {
                 })}
               />
             ) : (
-              <div className="flex-1 text-medexa-gray-900 text-base leading-relaxed whitespace-pre-wrap">
+              <div className="flex-1 text-medexa-gray-900 text-base leading-relaxed whitespace-pre-wrap break-words overflow-wrap-anywhere min-w-0">
                 {summary?.summary || "No summary text available."}
               </div>
             )}
