@@ -35,9 +35,15 @@ export default function LiveSession() {
     setMode,
     sending,
     lastChunkError,
-    typedLog,
+    chatMessages,
+    hasEverStarted,
+    isSessionRunning,
+    setIsSessionRunning,
+    setHasEverStarted,
     refreshLiveData,
-    sendTypedChunk,
+    startSessionClock,
+    pauseSessionClock,
+    sendChatMessage,
     handleAmbientChunk,
   } = live;
 
@@ -67,37 +73,67 @@ export default function LiveSession() {
   const timeLeft = recordingState?.timeLeft ?? 0;
   const nextUnitAt = recordingState?.nextUnitAt ?? elapsed + timeLeft;
   const nextUnitNumber = units + 1;
+
   const isActive =
     mode === "ambient"
       ? isListening || isTranscribing
-      : typedLog.length > 0 || sending;
+      : isSessionRunning || chatMessages.length > 0 || sending;
 
-  const startRecording = async () => {
+  /** Bottom-bar primary control: Start → Pause → Resume */
+  const primaryLabel =
+    mode === "ambient"
+      ? isListening
+        ? "Pause"
+        : hasEverStarted
+          ? "Resume"
+          : "Start"
+      : isSessionRunning
+        ? "Pause"
+        : hasEverStarted
+          ? "Resume"
+          : "Start";
+
+  const primaryIsPause = primaryLabel === "Pause";
+
+  const handlePrimaryControl = async () => {
+    if (mode === "chat") {
+      if (isSessionRunning) {
+        await pauseSessionClock();
+      } else {
+        await startSessionClock();
+      }
+      return;
+    }
+
+    // Ambient mic mode
+    if (isListening) {
+      stopListening();
+      setIsSessionRunning(false);
+      await api.updateState(sessionId, "paused", elapsed);
+      await refreshLiveData();
+      return;
+    }
+
+    setHasEverStarted(true);
+    setIsSessionRunning(true);
     await startListening();
     await api.updateState(sessionId, "recording", elapsed);
     await refreshLiveData();
   };
 
-  const toggleRecording = async () => {
-    if (mode !== "ambient") {
-      setMode("ambient");
-      return;
-    }
-    if (isListening) {
-      stopListening();
-      await api.updateState(sessionId, "paused", elapsed);
-      await refreshLiveData();
-    } else {
-      await startRecording();
-    }
-  };
-
   const handleStop = async () => {
     stopListening();
+    setIsSessionRunning(false);
+    await api.updateState(sessionId, "stopped", elapsed);
+
+    const chatTranscript = chatMessages
+      .map(
+        (m) =>
+          `${m.speaker === "therapist" ? "Therapist" : "Patient"}: ${m.text}`
+      )
+      .join("\n");
     const fullTranscript =
-      typedLog.map((l) => l.replace(/^\[[^\]]+\]\s*/, "")).join(" ") ||
-      transcript ||
-      "No transcript collected.";
+      chatTranscript || transcript || "No transcript collected.";
     const activeCode = session?.cpt || pipeline?.pathA.activeCpt || "";
     await api.finalizeSession(sessionId, fullTranscript, elapsed, {
       active: false,
@@ -137,6 +173,23 @@ export default function LiveSession() {
       </div>
     );
   }
+
+  const timerHint =
+    mode === "chat"
+      ? isSessionRunning
+        ? "Session chat timer running"
+        : hasEverStarted
+          ? "Chat paused — tap Resume or send a message"
+          : "Tap Start, then chat as patient & therapist"
+      : isTranscribing
+        ? "Whisper is transcribing…"
+        : isListening
+          ? "Whisper ambient listening active"
+          : isSupported
+            ? hasEverStarted
+              ? "Tap Resume to continue Whisper listening"
+              : "Tap Start to begin Whisper listening"
+            : "Use Session chat — mic not available";
 
   return (
     <div className="flex flex-col gap-4 md:gap-6 relative pb-28 w-full">
@@ -249,17 +302,7 @@ export default function LiveSession() {
                     / {units || 0} Unit{units === 1 ? "" : "s"}
                   </span>
                 </div>
-                <p className="text-sm text-medexa-gray-500 mt-1">
-                  {mode === "typed"
-                    ? "Step-by-step typed testing mode"
-                    : isTranscribing
-                      ? "Whisper is transcribing…"
-                      : isListening
-                        ? "Whisper ambient listening active"
-                        : isSupported
-                          ? "Tap Resume to start Whisper listening"
-                          : "Use Type chunks — mic not available"}
-                </p>
+                <p className="text-sm text-medexa-gray-500 mt-1">{timerHint}</p>
               </div>
             </div>
             <div className="text-left sm:text-right flex flex-col items-start sm:items-end shrink-0">
@@ -278,16 +321,18 @@ export default function LiveSession() {
             mode={mode}
             onModeChange={setMode}
             elapsed={elapsed}
+            isSessionRunning={isSessionRunning}
+            hasEverStarted={hasEverStarted}
             sending={sending}
             error={lastChunkError}
-            typedLog={typedLog}
+            chatMessages={chatMessages}
             ambientTranscript={transcript}
             ambientInterim={
               isTranscribing ? " (transcribing…)" : lastChunk ? `Last: ${lastChunk}` : ""
             }
             speechSupported={isSupported}
             speechError={speechError}
-            onSend={sendTypedChunk}
+            onSendChat={sendChatMessage}
           />
 
           <InsightsTimeline
@@ -314,22 +359,26 @@ export default function LiveSession() {
       <div className="fixed bottom-4 md:bottom-6 left-0 right-0 flex justify-center z-50 px-3 pointer-events-none safe-area-bottom">
         <div className="bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-medexa-gray-100 flex items-center gap-1 max-w-sm w-full pointer-events-auto">
           <Button
-            variant={isListening ? "ghost" : "default"}
+            variant={primaryIsPause ? "ghost" : "default"}
             className={`rounded-full px-3 md:px-4 h-11 font-semibold flex-1 text-sm ${
-              isListening
+              primaryIsPause
                 ? "text-medexa-blue hover:bg-medexa-blue-light"
                 : "bg-medexa-blue text-white hover:bg-blue-700"
             }`}
-            onClick={toggleRecording}
+            onClick={handlePrimaryControl}
           >
             <div
               className={`h-7 w-7 rounded-full flex items-center justify-center mr-2 ${
-                isListening ? "bg-medexa-blue-light" : "bg-white/20"
+                primaryIsPause ? "bg-medexa-blue-light" : "bg-white/20"
               }`}
             >
-              {isListening ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              {primaryIsPause ? (
+                <Pause className="h-3.5 w-3.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
             </div>
-            {mode === "typed" ? "Mic" : isListening ? "Pause" : "Resume"}
+            {primaryLabel}
           </Button>
           <div className="w-px h-8 bg-medexa-gray-200" />
           <Button

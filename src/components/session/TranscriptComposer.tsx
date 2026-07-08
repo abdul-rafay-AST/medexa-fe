@@ -1,70 +1,96 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Keyboard, Loader2, Mic, Send } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Loader2, MessageSquareText, Mic, Send, UserRound, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { formatElapsed } from "@/lib/api";
-import type { LiveMode } from "@/hooks/useLiveSession";
+import type { ChatMessage, ChatSpeaker, LiveMode } from "@/hooks/useLiveSession";
 
-const DEMO_LINES = [
-  "Patient reports lower back pain for two weeks, pain 6 out of 10.",
-  "Starting therapeutic exercise for lumbar stretching and core strengthening.",
-  "Continuing therapeutic exercise with resistance band for ten minutes.",
-  "Neuromuscular re-education for balance and gait training.",
-  "Manual therapy soft tissue mobilization on the lumbar spine.",
-  "Applying hot pack to the lower back for fifteen minutes.",
+const DEMO_EXCHANGE: Array<{ speaker: ChatSpeaker; text: string }> = [
+  {
+    speaker: "patient",
+    text: "My lower back has been hurting for two weeks. Pain is about 6 out of 10 today.",
+  },
+  {
+    speaker: "therapist",
+    text: "Understood. Let's start therapeutic exercise for lumbar stretching and core strengthening.",
+  },
+  {
+    speaker: "therapist",
+    text: "We'll continue therapeutic exercise with a resistance band for about ten minutes.",
+  },
+  {
+    speaker: "patient",
+    text: "Balance feels off when I turn quickly.",
+  },
+  {
+    speaker: "therapist",
+    text: "Next is neuromuscular re-education for balance and gait training.",
+  },
+  {
+    speaker: "therapist",
+    text: "I'll finish with manual therapy soft tissue mobilization on the lumbar spine.",
+  },
 ];
 
 interface TranscriptComposerProps {
   mode: LiveMode;
   onModeChange: (mode: LiveMode) => void;
   elapsed: number;
+  isSessionRunning: boolean;
+  hasEverStarted: boolean;
   sending: boolean;
   error: string | null;
-  typedLog: string[];
+  chatMessages: ChatMessage[];
   ambientTranscript?: string;
   ambientInterim?: string;
   speechSupported: boolean;
   speechError: string | null;
-  onSend: (
-    text: string,
-    options?: { advanceMinutes?: number; durationSeconds?: number }
-  ) => Promise<boolean>;
+  onSendChat: (speaker: ChatSpeaker, text: string) => Promise<boolean>;
 }
 
 export function TranscriptComposer({
   mode,
   onModeChange,
   elapsed,
+  isSessionRunning,
+  hasEverStarted,
   sending,
   error,
-  typedLog,
+  chatMessages,
   ambientTranscript,
   ambientInterim,
   speechSupported,
   speechError,
-  onSend,
+  onSendChat,
 }: TranscriptComposerProps) {
   const [text, setText] = useState("");
-  const [advanceMinutes, setAdvanceMinutes] = useState(4);
+  const [speaker, setSpeaker] = useState<ChatSpeaker>("therapist");
   const [demoIndex, setDemoIndex] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [chatMessages.length]);
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!text.trim() || sending) return;
-    const ok = await onSend(text, {
-      advanceMinutes: mode === "typed" ? advanceMinutes : 0,
-      durationSeconds: 60,
-    });
-    if (ok) setText("");
+    const ok = await onSendChat(speaker, text);
+    if (ok) {
+      setText("");
+      // Alternate roles to make doctor/patient simulation faster.
+      setSpeaker((prev) => (prev === "therapist" ? "patient" : "therapist"));
+    }
   };
 
   const insertDemo = () => {
-    const line = DEMO_LINES[demoIndex % DEMO_LINES.length];
+    const line = DEMO_EXCHANGE[demoIndex % DEMO_EXCHANGE.length];
     setDemoIndex((i) => i + 1);
-    setText(line);
+    setSpeaker(line.speaker);
+    setText(line.text);
   };
 
   return (
@@ -73,14 +99,14 @@ export function TranscriptComposer({
         <Button
           type="button"
           size="sm"
-          variant={mode === "typed" ? "default" : "outline"}
+          variant={mode === "chat" ? "default" : "outline"}
           className={`rounded-full flex-1 h-9 text-xs font-semibold ${
-            mode === "typed" ? "bg-medexa-blue text-white" : ""
+            mode === "chat" ? "bg-medexa-blue text-white" : ""
           }`}
-          onClick={() => onModeChange("typed")}
+          onClick={() => onModeChange("chat")}
         >
-          <Keyboard className="h-3.5 w-3.5 mr-1.5" />
-          Type chunks
+          <MessageSquareText className="h-3.5 w-3.5 mr-1.5" />
+          Session chat
         </Button>
         <Button
           type="button"
@@ -96,37 +122,16 @@ export function TranscriptComposer({
         </Button>
       </div>
 
-      {mode === "typed" ? (
-        <form onSubmit={submit} className="space-y-3">
-          <p className="text-xs text-medexa-gray-500">
-            Paste doctor/patient lines one-by-one. Session clock is at{" "}
-            <span className="font-semibold text-medexa-gray-900">{formatElapsed(elapsed)}</span>.
-            Path A runs instantly; Path B when enabled; Path C on Stop.
-          </p>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder='e.g. "Starting therapeutic exercise for lumbar stretching..."'
-            className="min-h-[88px] rounded-2xl bg-medexa-gray-50 border-medexa-gray-200 text-sm"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-semibold text-medexa-gray-500 flex items-center gap-2">
-              + minutes
-              <input
-                type="number"
-                min={0}
-                max={60}
-                value={advanceMinutes}
-                onChange={(e) => setAdvanceMinutes(Math.max(0, Number(e.target.value) || 0))}
-                className="w-14 h-8 rounded-full border border-medexa-gray-200 bg-white px-2 text-sm font-semibold text-medexa-gray-900"
-              />
-            </label>
+      {mode === "chat" ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs text-medexa-gray-500">
+              Chat as <span className="font-semibold text-medexa-gray-900">therapist</span> and{" "}
+              <span className="font-semibold text-medexa-gray-900">patient</span>. No voice required.
+              Timer {isSessionRunning ? "is live" : hasEverStarted ? "is paused" : "starts with Start / first message"}{" "}
+              at{" "}
+              <span className="font-semibold text-medexa-blue">{formatElapsed(elapsed)}</span>.
+            </p>
             <Button
               type="button"
               variant="outline"
@@ -136,36 +141,129 @@ export function TranscriptComposer({
             >
               Demo line
             </Button>
-            <Button
-              type="submit"
-              disabled={sending || !text.trim()}
-              className="rounded-full h-8 ml-auto bg-medexa-blue text-white hover:bg-blue-700 text-xs font-semibold"
-            >
-              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
-              Send chunk
-            </Button>
           </div>
-          {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
-          {typedLog.length > 0 && (
-            <div className="max-h-28 overflow-y-auto rounded-2xl bg-medexa-gray-50 p-3 space-y-1">
-              {typedLog.slice(-6).map((line, i) => (
-                <p key={`${line}-${i}`} className="text-[11px] text-medexa-gray-500 break-words">
-                  {line}
-                </p>
-              ))}
+
+          <div
+            ref={scrollRef}
+            className="max-h-56 md:max-h-72 overflow-y-auto rounded-2xl bg-medexa-gray-50 border border-medexa-gray-100 p-3 space-y-2"
+          >
+            {chatMessages.length === 0 ? (
+              <p className="text-xs text-medexa-gray-400 text-center py-6 px-3">
+                Press <span className="font-semibold">Start</span> below, then send messages as
+                Patient / Therapist. Path A updates live; Path B (Groq) when triggered; Path C on Stop.
+              </p>
+            ) : (
+              chatMessages.map((msg) => {
+                const isTherapist = msg.speaker === "therapist";
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex ${isTherapist ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-3 py-2 shadow-sm ${
+                        isTherapist
+                          ? "bg-medexa-blue text-white rounded-br-md"
+                          : "bg-white border border-medexa-gray-200 text-medexa-gray-900 rounded-bl-md"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1 opacity-80">
+                        {isTherapist ? (
+                          <Stethoscope className="h-3 w-3" />
+                        ) : (
+                          <UserRound className="h-3 w-3" />
+                        )}
+                        <span className="text-[10px] font-bold uppercase tracking-wide">
+                          {isTherapist ? "Therapist" : "Patient"}
+                        </span>
+                        <span className="text-[10px] ml-auto font-medium">
+                          {formatElapsed(msg.atSeconds)}
+                        </span>
+                      </div>
+                      <p className="text-sm leading-snug break-words">{msg.text}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <form onSubmit={submit} className="space-y-2">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={speaker === "therapist" ? "default" : "outline"}
+                className={`rounded-full flex-1 h-9 text-xs font-semibold ${
+                  speaker === "therapist" ? "bg-medexa-blue text-white" : ""
+                }`}
+                onClick={() => setSpeaker("therapist")}
+              >
+                <Stethoscope className="h-3.5 w-3.5 mr-1.5" />
+                Therapist
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={speaker === "patient" ? "default" : "outline"}
+                className={`rounded-full flex-1 h-9 text-xs font-semibold ${
+                  speaker === "patient" ? "bg-medexa-gray-900 text-white" : ""
+                }`}
+                onClick={() => setSpeaker("patient")}
+              >
+                <UserRound className="h-3.5 w-3.5 mr-1.5" />
+                Patient
+              </Button>
             </div>
-          )}
-        </form>
+
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={
+                speaker === "therapist"
+                  ? 'Therapist: "Starting therapeutic exercise…"'
+                  : 'Patient: "My lower back hurts when I bend…"'
+              }
+              className="min-h-[84px] rounded-2xl bg-white border-medexa-gray-200 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+            />
+
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] text-medexa-gray-400">
+                Enter to send · Shift+Enter for new line
+              </p>
+              <Button
+                type="submit"
+                disabled={sending || !text.trim()}
+                className="rounded-full h-9 ml-auto bg-medexa-blue text-white hover:bg-blue-700 text-xs font-semibold px-4"
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Send
+              </Button>
+            </div>
+            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+          </form>
+        </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-medexa-gray-500">
             {speechSupported
-              ? "Uses Groq Whisper STT (not browser Web Speech). Resume records ~5s clips → Path A."
-              : "Mic not supported here — switch to Type chunks (recommended for Path A/B/C testing)."}
+              ? "Uses Groq Whisper STT. Press Start to begin ambient listening (~5s audio clips → Path A)."
+              : "Mic not supported here — use Session chat (recommended for Path A/B/C testing)."}
           </p>
           {(ambientTranscript || ambientInterim) && (
             <p className="text-sm italic text-medexa-gray-500 break-words">
-              &ldquo;{ambientTranscript} <span className="text-medexa-gray-400">{ambientInterim}</span>&rdquo;
+              &ldquo;{ambientTranscript}{" "}
+              <span className="text-medexa-gray-400">{ambientInterim}</span>&rdquo;
             </p>
           )}
           {speechError && <p className="text-xs text-red-500">{speechError}</p>}
