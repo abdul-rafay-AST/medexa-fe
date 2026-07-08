@@ -75,6 +75,35 @@ export function TranscriptComposer({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chatMessages.length]);
 
+  // #region agent log
+  useEffect(() => {
+    fetch("http://127.0.0.1:7430/ingest/6d82ac26-a0b3-4655-94f2-24a638e8e43e", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b06e04" },
+      body: JSON.stringify({
+        sessionId: "b06e04",
+        runId: "ui-check-1",
+        hypothesisId: "D_E",
+        location: "TranscriptComposer.tsx:mount",
+        message: "TranscriptComposer mounted",
+        data: {
+          mode,
+          href: typeof window !== "undefined" ? window.location.href : null,
+          hasSessionChatLabel:
+            typeof document !== "undefined"
+              ? !!document.body?.innerText?.includes("Session chat")
+              : false,
+          hasTherapist:
+            typeof document !== "undefined"
+              ? !!document.body?.innerText?.includes("Therapist")
+              : false,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }, [mode]);
+  // #endregion
+
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!text.trim() || sending) return;
@@ -150,7 +179,7 @@ export function TranscriptComposer({
             {chatMessages.length === 0 ? (
               <p className="text-xs text-medexa-gray-400 text-center py-6 px-3">
                 Press <span className="font-semibold">Start</span> below, then send messages as
-                Patient / Therapist. Path A updates live; Path B (Groq) when triggered; Path C on Stop.
+                Patient / Therapist. Path A billing live; Path B (Bedrock) clinical questions; Path C on Stop.
               </p>
             ) : (
               chatMessages.map((msg) => {
@@ -257,7 +286,7 @@ export function TranscriptComposer({
         <div className="space-y-2">
           <p className="text-xs text-medexa-gray-500">
             {speechSupported
-              ? "Uses Groq Whisper STT. Press Start to begin ambient listening (~5s audio clips → Path A)."
+              ? "Ambient STT when configured. Press Start (~5s clips → Path A). Prefer Session chat if STT is off."
               : "Mic not supported here — use Session chat (recommended for Path A/B/C testing)."}
           </p>
           {(ambientTranscript || ambientInterim) && (

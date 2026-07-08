@@ -19,6 +19,9 @@ export function InsightsTimeline({
   assistantSuggestions,
   onChanged,
 }: InsightsTimelineProps) {
+  // CPT "detected" cards duplicate Suggestions panel Apply — hide swipe; show pointer only.
+  const timelineInsights = insights.filter((i) => i.type !== "detected");
+
   const formatDetectedLine = (insight: ApiInsight) => {
     if (insight.type === "billing") return insight.question;
     return insight.question || insight.description;
@@ -28,10 +31,10 @@ export function InsightsTimeline({
     <div className="relative mt-1 min-w-0">
       <div className="absolute left-[15px] top-3 bottom-0 border-l-2 border-dashed border-medexa-blue/25 hidden sm:block" />
       <p className="text-sm text-medexa-gray-500 mb-4 pl-1 sm:pl-2">
-        Medexa is Processing for Insights...
+        Path A clinical insights + Path B live questions
       </p>
       <div className="flex flex-col gap-5 relative pl-0 sm:pl-8">
-        {insights.map((insight, idx) => (
+        {timelineInsights.map((insight, idx) => (
           <div key={insight.id || idx} className="relative">
             <span className="hidden sm:block absolute -left-[1.35rem] top-5 h-3 w-3 rounded-full bg-medexa-blue ring-4 ring-medexa-gray-50 z-10" />
             {insight.type === "protocol" ? (
@@ -42,6 +45,21 @@ export function InsightsTimeline({
                 <p className="font-medium text-medexa-gray-900 break-words">
                   &ldquo;{insight.question}&rdquo;
                 </p>
+                <p className="text-xs text-medexa-gray-500 mt-2">
+                  Acknowledge only — does not start a CPT timer. Use Suggestions to bill.
+                </p>
+                {insight.status === "pending" && (
+                  <SwipeToApprove
+                    onApprove={() =>
+                      api.approveInsight(sessionId, insight.id || "").then(() => onChanged())
+                    }
+                  />
+                )}
+                {insight.status === "approved" && (
+                  <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-medexa-green">
+                    <Check className="h-4 w-4" /> Noted
+                  </div>
+                )}
               </Card>
             ) : (
               <Card className="p-4 rounded-2xl border border-medexa-gray-100 shadow-sm bg-white">
@@ -50,7 +68,7 @@ export function InsightsTimeline({
                     variant="outline"
                     className="rounded-full px-3 font-semibold text-medexa-gray-500 border-medexa-gray-200 capitalize text-xs"
                   >
-                    {insight.type === "billing" ? "Billing" : insight.label || "Detected"}
+                    {insight.type === "billing" ? "Billing alert" : insight.label || "Insight"}
                   </Badge>
                   {insight.status === "pending" && (
                     <button
@@ -67,12 +85,12 @@ export function InsightsTimeline({
                 <p className="font-semibold text-medexa-gray-900 text-sm break-words">
                   {formatDetectedLine(insight)}
                 </p>
-                {insight.description && insight.type === "detected" && (
+                {insight.description && (
                   <p className="text-xs text-medexa-gray-500 mt-1 break-words">
                     {insight.description}
                   </p>
                 )}
-                {insight.status === "pending" && (
+                {insight.status === "pending" && insight.type === "billing" && (
                   <SwipeToApprove
                     onApprove={() =>
                       api.approveInsight(sessionId, insight.id || "").then(() => onChanged())
@@ -105,9 +123,10 @@ export function InsightsTimeline({
             </div>
           ))}
 
-        {insights.length === 0 && assistantSuggestions.length === 0 && (
+        {timelineInsights.length === 0 && assistantSuggestions.length === 0 && (
           <div className="text-sm text-medexa-gray-400 pl-1 sm:pl-2">
-            Send a transcript chunk below — Path A insights will appear here.
+            Send chat or ambient transcript — Path A insights and Path B clinical questions appear
+            here. CPT billing stays in Suggestions → Apply.
           </div>
         )}
       </div>

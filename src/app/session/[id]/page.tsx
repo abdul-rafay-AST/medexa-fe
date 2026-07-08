@@ -179,7 +179,7 @@ function LiveSessionInner() {
   const timerHint =
     mode === "chat"
       ? pathBBusy
-        ? "Path B (Groq) is generating live suggestions…"
+        ? "Path B (Bedrock) is generating live clinical questions…"
         : isSessionRunning
           ? "Live chat timer running — Path A active"
           : hasEverStarted
@@ -188,7 +188,7 @@ function LiveSessionInner() {
       : isTranscribing
         ? "Whisper is transcribing…"
         : pathBBusy
-          ? "Path B (Groq) is generating live suggestions…"
+          ? "Path B (Bedrock) is generating live clinical questions…"
           : isListening
             ? "Whisper ambient listening active"
             : isSupported
@@ -273,7 +273,9 @@ function LiveSessionInner() {
             }`}
             onClick={() => setMobilePanel("insights")}
           >
-            Insights ({insights.length + assistantSuggestions.length})
+                        Insights (
+              {insights.filter((i) => i.type !== "detected").length + assistantSuggestions.length}
+            )
           </Button>
           <Button
             type="button"
