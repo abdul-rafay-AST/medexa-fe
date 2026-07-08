@@ -25,10 +25,7 @@ export function SuggestionsPanel({
   return (
     <Card className="p-4 md:p-6 rounded-3xl bg-white shadow-sm border-medexa-gray-100">
       <div className="flex justify-between items-center mb-4">
-        <div>
-          <h2 className="font-semibold text-medexa-gray-900">Billing suggestions</h2>
-          <p className="text-xs text-medexa-gray-500 mt-0.5">Path A — Apply starts the CPT timer</p>
-        </div>
+        <h2 className="font-semibold text-medexa-gray-900">Suggestions</h2>
         <span className="h-6 w-6 rounded-full bg-medexa-blue text-white text-xs flex items-center justify-center font-bold">
           {suggestions.length}
         </span>

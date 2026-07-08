@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2, MessageSquareText } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, StartSessionRequest } from "@/lib/api";
 
 const SAMUEL_PATIENT: StartSessionRequest = {
@@ -25,35 +25,6 @@ export default function Dashboard() {
   const router = useRouter();
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-
-  // #region agent log
-  useEffect(() => {
-    const hasChatCta = typeof document !== "undefined"
-      ? !!document.body?.innerText?.includes("Start Doctor & Patient Chat")
-      : false;
-    fetch("http://127.0.0.1:7430/ingest/6d82ac26-a0b3-4655-94f2-24a638e8e43e", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b06e04" },
-      body: JSON.stringify({
-        sessionId: "b06e04",
-        runId: "ui-check-1",
-        hypothesisId: "A_B_C",
-        location: "page.tsx:Dashboard.mount",
-        message: "Dashboard mounted — chat CTA presence",
-        data: {
-          href: typeof window !== "undefined" ? window.location.href : null,
-          host: typeof window !== "undefined" ? window.location.host : null,
-          hasChatCta,
-          bodySnippet:
-            typeof document !== "undefined"
-              ? document.body?.innerText?.slice(0, 400)
-              : null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }, []);
-  // #endregion
 
   const handleStartSession = async (patient: StartSessionRequest = SAMUEL_PATIENT) => {
     try {

@@ -33,7 +33,7 @@ async function sleep(ms: number) {
 }
 
 /**
- * After Path A returns, Path B may still be running (Bedrock).
+ * After Path A returns, Path B may still be running (Groq).
  * Poll a few times so chat feels "live" like ambient listening.
  */
 async function waitForPathBSettled(
@@ -147,7 +147,7 @@ export function useLiveSession({
 
       await refreshLiveData();
 
-      // Path B is async (Bedrock) — wait briefly so chat shows live assistant cards.
+      // Path B is async (Groq) — wait briefly so chat shows live assistant cards.
       setPathBBusy(true);
       try {
         await waitForPathBSettled(sessionId, beforeAssistant);
