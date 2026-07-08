@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2, MessageSquareText } from "lucide-react";
+import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, StartSessionRequest } from "@/lib/api";
@@ -32,8 +32,7 @@ export default function Dashboard() {
       setStartError(null);
       const res = await api.startSession(patient);
       if (res?.session?.id) {
-        // Always open the doctor/patient chat tester (Path A / B / C)
-        router.push(`/session/${res.session.id}?mode=chat`);
+        router.push(`/session/${res.session.id}`);
       } else {
         setStartError("Could not start session. The backend may be starting up — please try again in a moment.");
         setIsStarting(false);
@@ -47,41 +46,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-10 pb-10">
-      {/* Big Path A/B/C chat entry — hardest thing to miss */}
-      <section>
-        <button
-          type="button"
-          disabled={isStarting}
-          onClick={() => handleStartSession()}
-          className="w-full text-left rounded-3xl bg-medexa-blue text-white p-5 md:p-7 shadow-[0_12px_40px_rgba(37,99,235,0.28)] hover:bg-blue-700 transition-colors disabled:opacity-70"
-        >
-          <div className="flex items-start md:items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
-              {isStarting ? (
-                <Loader2 className="h-7 w-7 animate-spin" />
-              ) : (
-                <MessageSquareText className="h-7 w-7" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold uppercase tracking-wider text-white/80 mb-1">
-                Path A · Path B · Path C tester
-              </p>
-              <h2 className="text-xl md:text-2xl font-bold leading-tight">
-                {isStarting
-                  ? "Opening doctor / patient chat…"
-                  : "Start Doctor & Patient Chat"}
-              </h2>
-              <p className="text-sm text-white/85 mt-1">
-                No microphone. Type as therapist and patient live, watch Path A/B suggestions, then Stop for Path C.
-              </p>
-            </div>
-            <ArrowUpRight className="h-6 w-6 shrink-0 opacity-90 hidden sm:block" />
-          </div>
-        </button>
-      </section>
-
-      {/* 1 Screen — greeting + ambient card */}
+      {/* 1 Screen — greeting + voice card */}
       <section className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <p className="text-medexa-gray-500 font-medium text-sm mb-2">Tuesday, Jul 13, 2026</p>
@@ -90,17 +55,17 @@ export default function Dashboard() {
           </h1>
         </div>
 
-        <div onClick={() => !isStarting && handleStartSession()} className="cursor-pointer group w-full md:w-auto">
+        <div onClick={() => !isStarting && handleStartSession()} className="cursor-pointer group">
           <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(37,99,235,0.12)] transition-shadow border-medexa-gray-100 w-full md:min-w-[320px] h-full">
             <div className="h-12 w-12 rounded-full bg-medexa-blue-light flex items-center justify-center text-medexa-blue shrink-0 group-hover:scale-105 transition-transform">
               {isStarting ? <Loader2 className="h-6 w-6 animate-spin" /> : <Mic className="h-6 w-6" />}
             </div>
             <div>
               <h3 className="font-semibold text-lg text-medexa-gray-900">
-                {isStarting ? "Starting Session..." : "Or start via ambient session"}
+                {isStarting ? "Starting Session..." : "Start a new session?"}
               </h3>
               <p className="text-sm text-medexa-gray-500">
-                Opens the same live room — chat is on by default (mic optional).
+                &ldquo;Hey Medexa, start a new session with Samuel Thompson&rdquo;
               </p>
             </div>
           </Card>
