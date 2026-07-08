@@ -25,9 +25,40 @@ export interface ChatMessage {
 export interface UseLiveSessionOptions {
   sessionId: string;
   pollMs?: number;
+  initialMode?: LiveMode;
 }
 
-export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptions) {
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * After Path A returns, Path B may still be running (Groq).
+ * Poll a few times so chat feels "live" like ambient listening.
+ */
+async function waitForPathBSettled(
+  sessionId: string,
+  previousAssistantCount: number
+): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    await sleep(700);
+    const [assistant, pipeline] = await Promise.all([
+      api.getAssistantSuggestions(sessionId),
+      api.getLivePipeline(sessionId),
+    ]);
+    const count = assistant?.length ?? 0;
+    if (count > previousAssistantCount) return;
+    const status = pipeline?.pathB?.status;
+    if (status === "completed" || status === "skipped") return;
+    if (pipeline?.pathB?.enabled === false) return;
+  }
+}
+
+export function useLiveSession({
+  sessionId,
+  pollMs = 1500,
+  initialMode = "chat",
+}: UseLiveSessionOptions) {
   const [session, setSession] = useState<ApiSession | null>(null);
   const [recordingState, setRecordingState] = useState<ApiRecordingState | null>(null);
   const [insights, setInsights] = useState<ApiInsight[]>([]);
@@ -36,18 +67,24 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
   const [pipeline, setPipeline] = useState<ApiLivePipelineSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [mode, setMode] = useState<LiveMode>("chat");
+  const [mode, setMode] = useState<LiveMode>(initialMode);
   const [sending, setSending] = useState(false);
   const [lastChunkError, setLastChunkError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [hasEverStarted, setHasEverStarted] = useState(false);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
+  const [pathBBusy, setPathBBusy] = useState(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
+  const assistantCountRef = useRef(0);
 
   useEffect(() => {
     elapsedRef.current = elapsed;
   }, [elapsed]);
+
+  useEffect(() => {
+    assistantCountRef.current = assistantSuggestions.length;
+  }, [assistantSuggestions.length]);
 
   const refreshLiveData = useCallback(async () => {
     const [sessionData, state, resInsights, resSuggestions, resAssistant, resPipeline] =
@@ -78,9 +115,6 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
       }
       if (state.status === "recording") {
         setIsSessionRunning(true);
-      } else if (state.status === "paused" || state.status === "stopped" || state.status === "idle") {
-        // Don't force-stop local chat timer from poll races while actively chatting;
-        // only sync elapsed upward.
       }
       setElapsed((prev) => Math.max(prev, state.elapsedSeconds));
     }
@@ -92,6 +126,40 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
       setElapsed((prev) => Math.max(prev, resPipeline.elapsedSeconds));
     }
   }, [sessionId]);
+
+  const ingestLiveChunk = useCallback(
+    async (chunkText: string, durationSeconds: number) => {
+      const startAt = elapsedRef.current;
+      const beforeAssistant = assistantCountRef.current;
+
+      const analysis = await api.analyzeTranscriptChunk(sessionId, chunkText, {
+        elapsedSeconds: startAt,
+        durationSeconds,
+      });
+      if (!analysis) {
+        throw new Error("Chunk failed — check backend connection.");
+      }
+
+      // Advance simulated session clock the same way ambient audio clips do.
+      setElapsed((prev) => Math.max(prev, startAt + durationSeconds));
+      setHasEverStarted(true);
+      setIsSessionRunning(true);
+
+      await refreshLiveData();
+
+      // Path B is async (Groq) — wait briefly so chat shows live assistant cards.
+      setPathBBusy(true);
+      try {
+        await waitForPathBSettled(sessionId, beforeAssistant);
+        await refreshLiveData();
+      } finally {
+        setPathBBusy(false);
+      }
+
+      return startAt;
+    },
+    [refreshLiveData, sessionId]
+  );
 
   const startSessionClock = useCallback(async () => {
     setHasEverStarted(true);
@@ -117,23 +185,15 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
         await startSessionClock();
       }
 
-      const startAt = elapsedRef.current;
-      const durationSeconds = Math.max(20, Math.min(90, Math.ceil(body.split(/\s+/).length * 2.5)));
+      // Same cadence as ambient Whisper clips so billing / Path B triggers match.
+      const durationSeconds = 15;
       const labeled = `${speaker === "therapist" ? "Therapist" : "Patient"}: ${body}`;
 
       setSending(true);
       setLastChunkError(null);
       try {
-        await api.updateState(sessionId, "recording", startAt);
-        const analysis = await api.analyzeTranscriptChunk(sessionId, labeled, {
-          elapsedSeconds: startAt,
-          durationSeconds,
-        });
-        if (!analysis) {
-          setLastChunkError("Message failed — is the backend running on localhost:8000?");
-          return false;
-        }
-
+        await api.updateState(sessionId, "recording", elapsedRef.current);
+        const startAt = await ingestLiveChunk(labeled, durationSeconds);
         setChatMessages((prev) => [
           ...prev,
           {
@@ -143,35 +203,30 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
             atSeconds: startAt,
           },
         ]);
-        // Keep live timer ahead of the chunk window so the next line lands after this one.
-        setElapsed((prev) => Math.max(prev, startAt + durationSeconds));
-        setIsSessionRunning(true);
-        setHasEverStarted(true);
-        await refreshLiveData();
         return true;
-      } catch {
-        setLastChunkError("Network error sending chat message.");
+      } catch (e) {
+        setLastChunkError(
+          e instanceof Error ? e.message : "Network error sending chat message."
+        );
         return false;
       } finally {
         setSending(false);
       }
     },
-    [isSessionRunning, loadError, refreshLiveData, sessionId, startSessionClock]
+    [ingestLiveChunk, isSessionRunning, loadError, sessionId, startSessionClock]
   );
 
   const handleAmbientChunk = useCallback(
     async (chunk: string) => {
       if (!chunk.trim() || loadError) return;
-      const startAt = elapsedRef.current;
-      await api.analyzeTranscriptChunk(sessionId, chunk, {
-        elapsedSeconds: startAt,
-        durationSeconds: 15,
-      });
-      setElapsed((prev) => Math.max(prev, startAt + 15));
-      setHasEverStarted(true);
-      await refreshLiveData();
+      try {
+        await api.updateState(sessionId, "recording", elapsedRef.current);
+        await ingestLiveChunk(chunk, 15);
+      } catch (e) {
+        console.error(e);
+      }
     },
-    [loadError, refreshLiveData, sessionId]
+    [ingestLiveChunk, loadError, sessionId]
   );
 
   useEffect(() => {
@@ -180,7 +235,6 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
     return () => clearInterval(interval);
   }, [refreshLiveData, pollMs]);
 
-  // Live wall-clock tick for chat + ambient while session is running.
   useEffect(() => {
     if (!isSessionRunning) {
       if (tickRef.current) {
@@ -217,6 +271,7 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
     chatMessages,
     hasEverStarted,
     isSessionRunning,
+    pathBBusy,
     setIsSessionRunning,
     setHasEverStarted,
     refreshLiveData,

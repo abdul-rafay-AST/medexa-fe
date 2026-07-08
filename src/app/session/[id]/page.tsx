@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Loader2, Pause, Play, Square } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -11,17 +11,20 @@ import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
 import { TranscriptComposer } from "@/components/session/TranscriptComposer";
-import { useLiveSession } from "@/hooks/useLiveSession";
+import { LiveMode, useLiveSession } from "@/hooks/useLiveSession";
 import { useWhisperListening } from "@/hooks/useWhisperListening";
 import { api, formatElapsed } from "@/lib/api";
 
-export default function LiveSession() {
+function LiveSessionInner() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
 
-  const live = useLiveSession({ sessionId });
+  const requestedMode = (searchParams.get("mode") === "ambient" ? "ambient" : "chat") as LiveMode;
+
+  const live = useLiveSession({ sessionId, initialMode: requestedMode });
   const {
     session,
     recordingState,
@@ -38,6 +41,7 @@ export default function LiveSession() {
     chatMessages,
     hasEverStarted,
     isSessionRunning,
+    pathBBusy,
     setIsSessionRunning,
     setHasEverStarted,
     refreshLiveData,
@@ -46,6 +50,10 @@ export default function LiveSession() {
     sendChatMessage,
     handleAmbientChunk,
   } = live;
+
+  useEffect(() => {
+    setMode(requestedMode);
+  }, [requestedMode, setMode]);
 
   const {
     isListening,
@@ -76,10 +84,9 @@ export default function LiveSession() {
 
   const isActive =
     mode === "ambient"
-      ? isListening || isTranscribing
-      : isSessionRunning || chatMessages.length > 0 || sending;
+      ? isListening || isTranscribing || pathBBusy
+      : isSessionRunning || chatMessages.length > 0 || sending || pathBBusy;
 
-  /** Bottom-bar primary control: Start → Pause → Resume */
   const primaryLabel =
     mode === "ambient"
       ? isListening
@@ -105,7 +112,6 @@ export default function LiveSession() {
       return;
     }
 
-    // Ambient mic mode
     if (isListening) {
       stopListening();
       setIsSessionRunning(false);
@@ -127,13 +133,9 @@ export default function LiveSession() {
     await api.updateState(sessionId, "stopped", elapsed);
 
     const chatTranscript = chatMessages
-      .map(
-        (m) =>
-          `${m.speaker === "therapist" ? "Therapist" : "Patient"}: ${m.text}`
-      )
+      .map((m) => `${m.speaker === "therapist" ? "Therapist" : "Patient"}: ${m.text}`)
       .join("\n");
-    const fullTranscript =
-      chatTranscript || transcript || "No transcript collected.";
+    const fullTranscript = chatTranscript || transcript || "No transcript collected.";
     const activeCode = session?.cpt || pipeline?.pathA.activeCpt || "";
     await api.finalizeSession(sessionId, fullTranscript, elapsed, {
       active: false,
@@ -176,20 +178,24 @@ export default function LiveSession() {
 
   const timerHint =
     mode === "chat"
-      ? isSessionRunning
-        ? "Session chat timer running"
-        : hasEverStarted
-          ? "Chat paused — tap Resume or send a message"
-          : "Tap Start, then chat as patient & therapist"
+      ? pathBBusy
+        ? "Path B (Groq) is generating live suggestions…"
+        : isSessionRunning
+          ? "Live chat timer running — Path A active"
+          : hasEverStarted
+            ? "Chat paused — tap Resume or send a message"
+            : "Tap Start, then chat as Patient & Therapist"
       : isTranscribing
         ? "Whisper is transcribing…"
-        : isListening
-          ? "Whisper ambient listening active"
-          : isSupported
-            ? hasEverStarted
-              ? "Tap Resume to continue Whisper listening"
-              : "Tap Start to begin Whisper listening"
-            : "Use Session chat — mic not available";
+        : pathBBusy
+          ? "Path B (Groq) is generating live suggestions…"
+          : isListening
+            ? "Whisper ambient listening active"
+            : isSupported
+              ? hasEverStarted
+                ? "Tap Resume to continue Whisper listening"
+                : "Tap Start to begin Whisper listening"
+              : "Use Session chat — mic not available";
 
   return (
     <div className="flex flex-col gap-4 md:gap-6 relative pb-28 w-full">
@@ -250,6 +256,12 @@ export default function LiveSession() {
       </div>
 
       <PipelineStatusBar pipeline={pipeline} />
+      {pathBBusy && (
+        <div className="flex items-center gap-2 text-sm text-medexa-blue font-medium px-1">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Path B running live…
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 min-w-0">
         <div className="lg:hidden flex gap-2 w-full min-w-0">
@@ -323,12 +335,18 @@ export default function LiveSession() {
             elapsed={elapsed}
             isSessionRunning={isSessionRunning}
             hasEverStarted={hasEverStarted}
-            sending={sending}
+            sending={sending || pathBBusy}
             error={lastChunkError}
             chatMessages={chatMessages}
             ambientTranscript={transcript}
             ambientInterim={
-              isTranscribing ? " (transcribing…)" : lastChunk ? `Last: ${lastChunk}` : ""
+              isTranscribing
+                ? " (transcribing…)"
+                : pathBBusy
+                  ? " (Path B…)"
+                  : lastChunk
+                    ? `Last: ${lastChunk}`
+                    : ""
             }
             speechSupported={isSupported}
             speechError={speechError}
@@ -394,5 +412,20 @@ export default function LiveSession() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LiveSession() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24 text-medexa-gray-500 gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-medexa-blue" />
+          Loading session…
+        </div>
+      }
+    >
+      <LiveSessionInner />
+    </Suspense>
   );
 }
