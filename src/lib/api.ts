@@ -56,6 +56,68 @@ export interface ApiSuggestion {
   applied: boolean;
 }
 
+export interface ApiAssistantSuggestion {
+  id: string;
+  triggerId: string;
+  kind:
+    | "documentation_reminder"
+    | "missing_information"
+    | "clinical_question"
+    | "general";
+  title: string;
+  body: string;
+  confidence: "low" | "medium" | "high";
+  status: "active" | "dismissed";
+  disclaimer: string;
+  createdAt: string;
+}
+
+export interface ApiPathBTriggerStatus {
+  id: string;
+  reason: string;
+  status: "pending" | "dispatched" | "completed" | "skipped";
+  createdAt: string;
+}
+
+export interface ApiLivePipelineSnapshot {
+  sessionId: string;
+  billingRegion: string;
+  elapsedSeconds: number;
+  pathA: {
+    status: string;
+    entityCount: number;
+    alertCount: number;
+    suggestionCount: number;
+    activeCpt: string | null;
+    sessionTimerSec: number;
+    units: number;
+  };
+  pathB: {
+    enabled: boolean;
+    status: string;
+    triggerCount: number;
+    suggestionCount: number;
+    triggers: ApiPathBTriggerStatus[];
+  };
+  pathC: {
+    status: string;
+    hasSoap: boolean;
+    hasSummary: boolean;
+    reviewOpenCount: number;
+  };
+  insights: ApiInsight[];
+  billingSuggestions: ApiSuggestion[];
+  assistantSuggestions: ApiAssistantSuggestion[];
+  transcriptPreview: string;
+}
+
+export interface AnalyzeChunkOptions {
+  elapsedSeconds?: number;
+  durationSeconds?: number;
+  startTime?: string;
+  endTime?: string;
+}
+
 export interface StartSessionResponse {
   session: ApiSession;
   state: ApiRecordingState;
@@ -113,10 +175,20 @@ class ApiClient {
     return this.fetch<ApiRecordingState>(`/sessions/${sessionId}/state`);
   }
 
-  async analyzeTranscriptChunk(sessionId: string, chunkText: string): Promise<unknown | null> {
+  async analyzeTranscriptChunk(
+    sessionId: string,
+    chunkText: string,
+    options: AnalyzeChunkOptions = {}
+  ): Promise<unknown | null> {
     return this.fetch(`/sessions/${sessionId}/analyze-transcript-chunk`, {
       method: "POST",
-      body: JSON.stringify({ chunk_text: chunkText }),
+      body: JSON.stringify({
+        chunk_text: chunkText,
+        elapsed_seconds: options.elapsedSeconds,
+        duration_seconds: options.durationSeconds ?? 15,
+        start_time: options.startTime ?? "",
+        end_time: options.endTime ?? "",
+      }),
     });
   }
 
@@ -126,6 +198,38 @@ class ApiClient {
 
   async getSuggestions(sessionId: string): Promise<ApiSuggestion[] | null> {
     return this.fetch<ApiSuggestion[]>(`/sessions/${sessionId}/suggestions`);
+  }
+
+  async getAssistantSuggestions(sessionId: string): Promise<ApiAssistantSuggestion[] | null> {
+    return this.fetch<ApiAssistantSuggestion[]>(`/sessions/${sessionId}/assistant-suggestions`);
+  }
+
+  async getLivePipeline(sessionId: string): Promise<ApiLivePipelineSnapshot | null> {
+    return this.fetch<ApiLivePipelineSnapshot>(`/sessions/${sessionId}/live-pipeline`);
+  }
+
+  async transcribeAudio(
+    sessionId: string,
+    blob: Blob
+  ): Promise<{ transcript: string } | null> {
+    try {
+      const apiBase = this.getApiUrl();
+      const form = new FormData();
+      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+      form.append("file", blob, `chunk.${ext}`);
+      const response = await fetch(`${apiBase}/sessions/${sessionId}/transcribe-audio`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => response.statusText);
+        throw new Error(detail || `Transcription failed (${response.status})`);
+      }
+      return (await response.json()) as { transcript: string };
+    } catch (e) {
+      console.error("transcribeAudio failed:", e);
+      throw e instanceof Error ? e : new Error("Transcription failed");
+    }
   }
 
   async updateState(sessionId: string, status: RecordingStatus, elapsedSeconds?: number): Promise<ApiRecordingState | null> {

@@ -50,13 +50,13 @@ export default function Dashboard() {
       <section className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <p className="text-medexa-gray-500 font-medium text-sm mb-2">Tuesday, Jul 13, 2026</p>
-          <h1 className="text-4xl md:text-5xl font-bold text-medexa-gray-900 leading-tight">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-medexa-gray-900 leading-tight">
             Good Evening,<br />Dr. Sarah
           </h1>
         </div>
 
         <div onClick={() => !isStarting && handleStartSession()} className="cursor-pointer group">
-          <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(139,92,246,0.12)] transition-shadow border-medexa-gray-100 min-w-[320px] h-full">
+          <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(37,99,235,0.12)] transition-shadow border-medexa-gray-100 w-full md:min-w-[320px] h-full">
             <div className="h-12 w-12 rounded-full bg-medexa-blue-light flex items-center justify-center text-medexa-blue shrink-0 group-hover:scale-105 transition-transform">
               {isStarting ? <Loader2 className="h-6 w-6 animate-spin" /> : <Mic className="h-6 w-6" />}
             </div>
@@ -65,7 +65,7 @@ export default function Dashboard() {
                 {isStarting ? "Starting Session..." : "Start a new session?"}
               </h3>
               <p className="text-sm text-medexa-gray-500">
-                &ldquo;Hey Medexa, start a new session with David Peter&rdquo;
+                &ldquo;Hey Medexa, start a new session with Samuel Thompson&rdquo;
               </p>
             </div>
           </Card>
