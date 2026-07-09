@@ -36,9 +36,6 @@ const DEMO_EXCHANGE: Array<{ speaker: ChatSpeaker; text: string }> = [
 ];
 
 interface ChatSimulatorPanelProps {
-  elapsed: number;
-  isSessionRunning: boolean;
-  hasEverStarted: boolean;
   sending: boolean;
   error: string | null;
   chatMessages: ChatMessage[];
@@ -46,9 +43,6 @@ interface ChatSimulatorPanelProps {
 }
 
 export function ChatSimulatorPanel({
-  _elapsed,
-  _isSessionRunning,
-  _hasEverStarted,
   sending,
   error,
   chatMessages,

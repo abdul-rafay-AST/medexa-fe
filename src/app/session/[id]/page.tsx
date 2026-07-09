@@ -337,9 +337,6 @@ export default function LiveSession() {
 
           {isSimulatorMode ? (
             <ChatSimulatorPanel
-              elapsed={elapsed}
-              isSessionRunning={isSessionRunning}
-              hasEverStarted={hasEverStarted}
               sending={sending}
               error={lastChunkError}
               chatMessages={chatMessages}
@@ -359,7 +356,6 @@ export default function LiveSession() {
           <InsightsTimeline
             sessionId={sessionId}
             insights={insights}
-            assistantSuggestions={[]}
             onChanged={refreshLiveData}
           />
         </div>

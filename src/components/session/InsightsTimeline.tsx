@@ -4,19 +4,17 @@ import { Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SwipeToApprove } from "@/components/ui/swipe-to-approve";
-import { api, ApiAssistantSuggestion, ApiInsight } from "@/lib/api";
+import { api, ApiInsight } from "@/lib/api";
 
 interface InsightsTimelineProps {
   sessionId: string;
   insights: ApiInsight[];
-  assistantSuggestions: ApiAssistantSuggestion[];
   onChanged: () => Promise<void>;
 }
 
 export function InsightsTimeline({
   sessionId,
   insights,
-  _assistantSuggestions,
   onChanged,
 }: InsightsTimelineProps) {
   const formatDetectedLine = (insight: ApiInsight) => {
