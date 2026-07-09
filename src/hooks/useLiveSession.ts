@@ -118,7 +118,7 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
       }
 
       const startAt = elapsedRef.current;
-      const durationSeconds = Math.max(20, Math.min(90, Math.ceil(body.split(/\s+/).length * 2.5)));
+      const durationSeconds = Math.max(5, Math.min(30, Math.ceil(body.split(/\s+/).length * 1.5)));
       const labeled = `${speaker === "therapist" ? "Therapist" : "Patient"}: ${body}`;
 
       setSending(true);
