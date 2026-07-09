@@ -48,6 +48,11 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   const sessionStartedAtRef = useRef<number | null>(null);
   const elapsedAtStartRef = useRef(0);
   const isSessionRunningRef = useRef(false);
+  const cptAnchorRef = useRef({ seconds: 0, atMs: Date.now() });
+  const billingAnchorRef = useRef({ seconds: 0, atMs: Date.now() });
+  const activeCptRef = useRef<string | null>(null);
+  const [cptElapsed, setCptElapsed] = useState(0);
+  const [billingElapsedLive, setBillingElapsedLive] = useState(0);
 
   useEffect(() => {
     elapsedRef.current = elapsed;
@@ -113,6 +118,12 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       if (state.status === "recording") {
         setIsSessionRunning(true);
       }
+      const apiCpt = state.cptElapsedSeconds ?? 0;
+      const apiBilling = state.billingElapsedSeconds ?? 0;
+      cptAnchorRef.current = { seconds: apiCpt, atMs: Date.now() };
+      billingAnchorRef.current = { seconds: apiBilling, atMs: Date.now() };
+      setCptElapsed(apiCpt);
+      setBillingElapsedLive(apiBilling);
       const backendWall = state.elapsedSeconds;
       if (isSessionRunningRef.current && sessionStartedAtRef.current !== null) {
         const localWall = getWallClockElapsed();
@@ -130,6 +141,15 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     if (resAssistant) setAssistantSuggestions(resAssistant);
     if (resPipeline) {
       setPipeline(resPipeline);
+      activeCptRef.current = resPipeline.pathA.activeCpt ?? null;
+      const pipelineCpt = resPipeline.pathA.cptElapsedSeconds ?? 0;
+      const pipelineBilling = resPipeline.pathA.sessionTimerSec ?? 0;
+      if (!state) {
+        cptAnchorRef.current = { seconds: pipelineCpt, atMs: Date.now() };
+        billingAnchorRef.current = { seconds: pipelineBilling, atMs: Date.now() };
+        setCptElapsed(pipelineCpt);
+        setBillingElapsedLive(pipelineBilling);
+      }
       const backendWall = resPipeline.elapsedSeconds;
       if (isSessionRunningRef.current && sessionStartedAtRef.current !== null) {
         const localWall = getWallClockElapsed();
@@ -234,9 +254,12 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
 
   useEffect(() => {
     refreshLiveData();
-    const interval = setInterval(refreshLiveData, pollMs);
+    const hasActiveCpt = Boolean(activeCptRef.current);
+    const intervalMs =
+      isSessionRunning && hasActiveCpt ? Math.min(pollMs, 1000) : pollMs;
+    const interval = setInterval(refreshLiveData, intervalMs);
     return () => clearInterval(interval);
-  }, [refreshLiveData, pollMs]);
+  }, [refreshLiveData, pollMs, isSessionRunning, pipeline?.pathA.activeCpt]);
 
   useEffect(() => {
     if (!isSessionRunning || disableTick) {
@@ -248,6 +271,11 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     }
     tickRef.current = setInterval(() => {
       setElapsed(getWallClockElapsed());
+      const tickDelta = Math.floor((Date.now() - cptAnchorRef.current.atMs) / 1000);
+      if (activeCptRef.current) {
+        setCptElapsed(cptAnchorRef.current.seconds + tickDelta);
+        setBillingElapsedLive(billingAnchorRef.current.seconds + tickDelta);
+      }
     }, 1000);
     return () => {
       if (tickRef.current) {
@@ -255,7 +283,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         tickRef.current = null;
       }
     };
-  }, [disableTick, getWallClockElapsed, isSessionRunning]);
+  }, [disableTick, getWallClockElapsed, isSessionRunning, pipeline?.pathA.activeCpt]);
 
   return {
     session,
@@ -266,10 +294,8 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     pipeline,
     loadError,
     elapsed,
-    billingElapsed:
-      recordingState?.billingElapsedSeconds ??
-      pipeline?.pathA.sessionTimerSec ??
-      0,
+    billingElapsed: billingElapsedLive,
+    cptElapsed,
     setElapsed,
     mode,
     setMode,

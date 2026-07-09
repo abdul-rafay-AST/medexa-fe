@@ -35,6 +35,7 @@ export default function LiveSession() {
     loadError,
     elapsed,
     billingElapsed,
+    cptElapsed,
     sending,
     lastChunkError,
     chatMessages,
@@ -73,12 +74,14 @@ export default function LiveSession() {
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
   const totalBillingElapsed =
+    billingElapsed ??
     recordingState?.billingElapsedSeconds ??
     pipeline?.pathA.sessionTimerSec ??
-    billingElapsed;
+    0;
   const activeCptSeconds =
-    pipeline?.pathA.cptElapsedSeconds ??
+    cptElapsed ??
     recordingState?.cptElapsedSeconds ??
+    pipeline?.pathA.cptElapsedSeconds ??
     0;
   const nextUnitAt =
     recordingState?.nextUnitAt ?? totalBillingElapsed + (recordingState?.timeLeft ?? 480);
