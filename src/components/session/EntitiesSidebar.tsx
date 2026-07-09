@@ -58,7 +58,7 @@ export function EntitiesSidebar({ entities }: EntitiesSidebarProps) {
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-semibold text-medexa-gray-900 text-sm leading-tight break-words">
-                    "{entity.phrase}"
+                    &quot;{entity.phrase}&quot;
                   </p>
                   {entity.isBillable && (
                     <Badge className="bg-medexa-blue text-white rounded-full text-[10px] font-bold px-2 py-0 hover:bg-medexa-blue shrink-0">

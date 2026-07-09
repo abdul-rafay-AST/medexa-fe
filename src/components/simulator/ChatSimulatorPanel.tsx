@@ -46,9 +46,9 @@ interface ChatSimulatorPanelProps {
 }
 
 export function ChatSimulatorPanel({
-  elapsed,
-  isSessionRunning,
-  hasEverStarted,
+  _elapsed,
+  _isSessionRunning,
+  _hasEverStarted,
   sending,
   error,
   chatMessages,

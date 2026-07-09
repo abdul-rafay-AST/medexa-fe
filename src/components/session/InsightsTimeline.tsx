@@ -16,7 +16,7 @@ interface InsightsTimelineProps {
 export function InsightsTimeline({
   sessionId,
   insights,
-  assistantSuggestions,
+  _assistantSuggestions,
   onChanged,
 }: InsightsTimelineProps) {
   const formatDetectedLine = (insight: ApiInsight) => {
