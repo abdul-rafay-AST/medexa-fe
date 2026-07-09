@@ -230,19 +230,29 @@ class ApiClient {
 
   async transcribeAudio(
     sessionId: string,
-    blob: Blob
+    blob: Blob,
+    mimeType?: string
   ): Promise<{ transcript: string } | null> {
     try {
       const apiBase = this.getApiUrl();
       const form = new FormData();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-      form.append("file", blob, `chunk.${ext}`);
+      const type = (mimeType || blob.type || "audio/webm").split(";")[0].trim().toLowerCase();
+      const ext =
+        type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("wav") ? "wav" : "webm";
+      const file = new File([blob], `chunk.${ext}`, { type: type || "audio/webm" });
+      form.append("file", file);
       const response = await fetch(`${apiBase}/sessions/${sessionId}/transcribe-audio`, {
         method: "POST",
         body: form,
       });
       if (!response.ok) {
-        const detail = await response.text().catch(() => response.statusText);
+        let detail = await response.text().catch(() => response.statusText);
+        try {
+          const parsed = JSON.parse(detail) as { detail?: string };
+          if (parsed.detail) detail = parsed.detail;
+        } catch {
+          /* keep raw text */
+        }
         throw new Error(detail || `Transcription failed (${response.status})`);
       }
       return (await response.json()) as { transcript: string };

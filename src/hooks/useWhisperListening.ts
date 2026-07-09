@@ -16,21 +16,23 @@ export interface UseWhisperListeningReturn {
 }
 
 const CHUNK_MS = 5000;
+/** Groq rejects very small / headerless fragments; skip tiny blobs. */
+const MIN_UPLOAD_BYTES = 1200;
 
 function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
   const candidates = [
     "audio/webm;codecs=opus",
     "audio/webm",
-    "audio/mp4",
+    "audio/ogg;codecs=opus",
     "audio/ogg",
+    "audio/mp4",
   ];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
-/**
  * Ambient listening via MediaRecorder → backend Groq Whisper STT.
- * Replaces unreliable browser Web Speech for Medexa live sessions.
+ * Rotates the recorder every CHUNK_MS so each upload is a complete audio file.
  */
 export function useWhisperListening(
   sessionId: string,
@@ -47,7 +49,9 @@ export function useWhisperListening(
   const streamRef = useRef<MediaStream | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
-  const mimeTypeRef = useRef<string | undefined>(undefined);
+  const mimeTypeRef = useRef<string>("audio/webm");
+  const chunkPartsRef = useRef<Blob[]>([]);
+  const rotateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -60,22 +64,27 @@ export function useWhisperListening(
       !!navigator.mediaDevices?.getUserMedia &&
       typeof MediaRecorder !== "undefined";
     setIsSupported(ok);
-    mimeTypeRef.current = pickMimeType();
+    mimeTypeRef.current = pickMimeType() ?? "audio/webm";
   }, []);
 
   const stopTracks = useCallback(() => {
+    if (rotateTimerRef.current) {
+      clearInterval(rotateTimerRef.current);
+      rotateTimerRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRecorderRef.current = null;
+    chunkPartsRef.current = [];
   }, []);
 
   const uploadBlob = useCallback(
     async (blob: Blob) => {
-      if (!blob.size || !shouldListenRef.current) return;
+      if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
       setIsTranscribing(true);
       setError(null);
       try {
-        const result = await api.transcribeAudio(sessionId, blob);
+        const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current);
         const text = (result?.transcript || "").trim();
         if (text) {
           setLastChunk(text);
@@ -95,6 +104,59 @@ export function useWhisperListening(
     [sessionId]
   );
 
+  const finalizeAndUpload = useCallback(async () => {
+    const mimeType = mimeTypeRef.current;
+    const parts = chunkPartsRef.current;
+    chunkPartsRef.current = [];
+    if (!parts.length) return;
+    const blob = new Blob(parts, { type: mimeType });
+    await uploadBlob(blob);
+  }, [uploadBlob]);
+
+  const beginRecorder = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream || !shouldListenRef.current) return;
+
+    const mimeType = mimeTypeRef.current;
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+
+    chunkPartsRef.current = [];
+    mediaRecorderRef.current = recorder;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        chunkPartsRef.current.push(event.data);
+      }
+    };
+    recorder.onerror = () => {
+      setError("Recording error — try typed chunks instead.");
+      shouldListenRef.current = false;
+      setIsListening(false);
+      stopTracks();
+    };
+    recorder.onstop = () => {
+      void finalizeAndUpload().then(() => {
+        if (shouldListenRef.current && streamRef.current) {
+          beginRecorder();
+        }
+      });
+    };
+
+    recorder.start();
+  }, [finalizeAndUpload, stopTracks]);
+
+  const rotateRecorder = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const startListening = useCallback(async () => {
     if (!isSupported) {
       setError("Microphone recording is not supported in this browser.");
@@ -104,39 +166,32 @@ export function useWhisperListening(
 
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
       streamRef.current = stream;
-      const mimeType = mimeTypeRef.current;
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      mediaRecorderRef.current = recorder;
       shouldListenRef.current = true;
       setIsListening(true);
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          void uploadBlob(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        setError("Recording error — try typed chunks instead.");
-        shouldListenRef.current = false;
-        setIsListening(false);
-        stopTracks();
-      };
-      recorder.start(CHUNK_MS);
+      beginRecorder();
+      rotateTimerRef.current = setInterval(rotateRecorder, CHUNK_MS);
     } catch {
       shouldListenRef.current = false;
       setIsListening(false);
       setError("Microphone access denied or unavailable.");
       stopTracks();
     }
-  }, [isSupported, stopTracks, uploadBlob]);
+  }, [beginRecorder, isSupported, rotateRecorder, stopTracks]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
+    if (rotateTimerRef.current) {
+      clearInterval(rotateTimerRef.current);
+      rotateTimerRef.current = null;
+    }
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       try {
@@ -144,8 +199,9 @@ export function useWhisperListening(
       } catch {
         /* ignore */
       }
+    } else {
+      stopTracks();
     }
-    stopTracks();
     setIsListening(false);
   }, [stopTracks]);
 
