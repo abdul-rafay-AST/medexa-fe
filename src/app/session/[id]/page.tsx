@@ -37,6 +37,7 @@ export default function LiveSession() {
     billingElapsed,
     cptElapsed,
     timeLeft,
+    activeCptCode,
     sending,
     lastChunkError,
     chatMessages,
@@ -74,14 +75,14 @@ export default function LiveSession() {
   }, [isSimulatorMode, isListening, stopListening]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
-  const totalBillingElapsed =
-    billingElapsed ?? recordingState?.billingElapsedSeconds ?? 0;
-  const activeCptSeconds = cptElapsed ?? recordingState?.cptElapsedSeconds ?? 0;
-  const hasActiveCpt = Boolean(pipeline?.pathA?.activeCpt);
-  const actualTimeLeft = timeLeft ?? recordingState?.timeLeft ?? 8 * 60;
+  const totalBillingElapsed = billingElapsed;
+  const activeCptSeconds = cptElapsed;
+  const hasActiveCpt = Boolean(activeCptCode ?? pipeline?.pathA?.activeCpt);
+  const actualTimeLeft = timeLeft;
   const nextUnitNumber = units + 1;
   const activeCptLabel =
-    pipeline?.pathA.cptDisplayName ?? pipeline?.pathA.activeCpt ?? null;
+    pipeline?.pathA.cptDisplayName ?? pipeline?.pathA.activeCpt ?? activeCptCode ?? null;
+  const showSessionTimer = hasEverStarted || isSessionRunning || elapsed > 0;
   const pendingBillingInsights = insights.filter(
     (i) => i.type === "billing" && i.status === "pending"
   );
@@ -301,9 +302,11 @@ export default function LiveSession() {
               </div>
               <div className="min-w-0">
                 <p className="text-4xl sm:text-5xl font-black text-medexa-gray-900 tracking-tighter tabular-nums drop-shadow-sm">
-                  {formatElapsed(elapsed)}
+                  {formatElapsed(showSessionTimer ? elapsed : 0)}
                 </p>
-                <p className="text-sm text-medexa-gray-500 mt-1">Session time</p>
+                <p className="text-sm text-medexa-gray-500 mt-1">
+                  {isSessionRunning ? "Session time" : hasEverStarted ? "Session paused" : "Session time"}
+                </p>
               </div>
             </div>
 
@@ -326,10 +329,19 @@ export default function LiveSession() {
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-semibold text-medexa-gray-500">Billing standby</p>
-                  <p className="text-xs text-medexa-gray-400 mt-1">
-                    Apply a CPT suggestion to start timed billing
+                  <p className="text-sm font-semibold text-medexa-gray-500">
+                    {isSessionRunning ? "Awaiting CPT" : "Billing standby"}
                   </p>
+                  <p className="text-xs text-medexa-gray-400 mt-1 tabular-nums">
+                    {isSessionRunning
+                      ? "Session running — apply a CPT to start billing"
+                      : "Start session, then apply a CPT suggestion"}
+                  </p>
+                  {units > 0 && (
+                    <p className="text-xs font-semibold text-medexa-blue mt-1 tabular-nums">
+                      {units} unit{units === 1 ? "" : "s"} billed
+                    </p>
+                  )}
                 </>
               )}
             </div>

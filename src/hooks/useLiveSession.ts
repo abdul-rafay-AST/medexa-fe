@@ -27,7 +27,7 @@ export interface UseLiveSessionOptions {
   disableTick?: boolean;
 }
 
-type TimerAnchors = {
+type BillingAnchors = {
   cptSeconds: number;
   billingSeconds: number;
   timeLeftSeconds: number;
@@ -52,14 +52,15 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   const [cptElapsed, setCptElapsed] = useState(0);
   const [billingElapsed, setBillingElapsed] = useState(0);
   const [timeLeft, setTimeLeft] = useState(8 * 60);
+  const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
 
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const billingTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
   const sessionStartedAtRef = useRef<number | null>(null);
   const elapsedAtStartRef = useRef(0);
   const isSessionRunningRef = useRef(false);
-  const activeCptRef = useRef<string | null>(null);
-  const timerAnchorsRef = useRef<TimerAnchors>({
+  const billingAnchorsRef = useRef<BillingAnchors>({
     cptSeconds: 0,
     billingSeconds: 0,
     timeLeftSeconds: 8 * 60,
@@ -91,6 +92,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     elapsedAtStartRef.current = baseElapsed;
     sessionStartedAtRef.current = Date.now();
     setElapsed(baseElapsed);
+    elapsedRef.current = baseElapsed;
   }, []);
 
   const pauseSessionClockLocal = useCallback(() => {
@@ -98,36 +100,61 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     elapsedAtStartRef.current = current;
     sessionStartedAtRef.current = null;
     setElapsed(current);
+    elapsedRef.current = current;
   }, [getWallClockElapsed]);
 
-  const applyTimerAnchors = useCallback((state: ApiRecordingState) => {
-    // Only synchronize if the drift is > 3 seconds to avoid pulling the timer backwards
-    // from standard network latency during frequent polling.
-    setCptElapsed((prev) => 
-      Math.abs(prev - (state.cptElapsedSeconds ?? 0)) > 3 ? (state.cptElapsedSeconds ?? 0) : prev
-    );
-    setBillingElapsed((prev) => 
-      Math.abs(prev - (state.billingElapsedSeconds ?? 0)) > 3 ? (state.billingElapsedSeconds ?? 0) : prev
-    );
-    setTimeLeft((prev) => 
-      Math.abs(prev - (state.timeLeft ?? 8 * 60)) > 3 ? (state.timeLeft ?? 8 * 60) : prev
-    );
+  const snapBillingAnchors = useCallback((state: ApiRecordingState) => {
+    const atMs = Date.now();
+    const anchors = billingAnchorsRef.current;
+    const deltaSec = Math.floor((atMs - anchors.atMs) / 1000);
+    const liveCpt = anchors.cptSeconds + deltaSec;
+    const liveBilling = anchors.billingSeconds + deltaSec;
+
+    const serverCpt = state.cptElapsedSeconds ?? 0;
+    const serverBilling = state.billingElapsedSeconds ?? 0;
+    const serverLeft = state.timeLeft ?? 8 * 60;
+    const frozen = state.status !== "recording";
+
+    const cptSeconds = frozen ? serverCpt : Math.max(serverCpt, liveCpt);
+    const billingSeconds = frozen ? serverBilling : Math.max(serverBilling, liveBilling);
+    const timeLeftSeconds = frozen ? serverLeft : serverLeft;
+
+    billingAnchorsRef.current = {
+      cptSeconds,
+      billingSeconds,
+      timeLeftSeconds,
+      atMs,
+    };
+    setCptElapsed(cptSeconds);
+    setBillingElapsed(billingSeconds);
+    setTimeLeft(timeLeftSeconds);
   }, []);
 
-  const syncSessionStatus = useCallback(
+  const syncSessionClockFromServer = useCallback(
     (state: ApiRecordingState) => {
+      const serverElapsed = state.elapsedSeconds ?? 0;
       if (state.status === "recording") {
         setIsSessionRunning(true);
         if (sessionStartedAtRef.current === null) {
-          armSessionClock(state.elapsedSeconds ?? 0);
+          armSessionClock(serverElapsed);
+          return;
         }
-      } else if (state.status === "paused" || state.status === "stopped") {
+        const local = getWallClockElapsed();
+        if (serverElapsed > local + 1) {
+          armSessionClock(serverElapsed);
+        }
+        return;
+      }
+
+      if (state.status === "paused" || state.status === "stopped") {
         setIsSessionRunning(false);
         pauseSessionClockLocal();
-        setElapsed(state.elapsedSeconds ?? elapsedRef.current);
+        setElapsed(serverElapsed);
+        elapsedRef.current = serverElapsed;
+        elapsedAtStartRef.current = serverElapsed;
       }
     },
-    [armSessionClock, pauseSessionClockLocal]
+    [armSessionClock, getWallClockElapsed, pauseSessionClockLocal]
   );
 
   const refreshLiveData = useCallback(async () => {
@@ -152,36 +179,30 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
 
     setLoadError(null);
     setSession(sessionData);
+
     if (state) {
       setRecordingState(state);
       if (state.status === "recording" || state.status === "paused" || state.status === "stopped") {
         setHasEverStarted(true);
       }
-      applyTimerAnchors(state);
-      syncSessionStatus(state);
+      syncSessionClockFromServer(state);
+      snapBillingAnchors(state);
     }
+
     if (resInsights) setInsights(resInsights);
     if (resSuggestions) setSuggestions(resSuggestions);
     if (resAssistant) setAssistantSuggestions(resAssistant);
+
     if (resPipeline) {
       setPipeline(resPipeline);
-      activeCptRef.current = resPipeline.pathA.activeCpt ?? null;
+      setActiveCptCode(resPipeline.pathA.activeCpt ?? null);
       if (!state) {
-        const fallbackBilling = resPipeline.pathA.sessionTimerSec ?? 0;
-        const fallbackCpt = resPipeline.pathA.cptElapsedSeconds ?? 0;
-        timerAnchorsRef.current = {
-          cptSeconds: fallbackCpt,
-          billingSeconds: fallbackBilling,
-          timeLeftSeconds: Math.max(0, 8 * 60 - fallbackBilling),
-          atMs: Date.now(),
-        };
-        setCptElapsed(fallbackCpt);
-        setBillingElapsed(fallbackBilling);
-        setTimeLeft(timerAnchorsRef.current.timeLeftSeconds);
         setElapsed(resPipeline.elapsedSeconds ?? 0);
+        setCptElapsed(resPipeline.pathA.cptElapsedSeconds ?? 0);
+        setBillingElapsed(resPipeline.pathA.sessionTimerSec ?? 0);
       }
     }
-  }, [applyTimerAnchors, sessionId, syncSessionStatus]);
+  }, [sessionId, snapBillingAnchors, syncSessionClockFromServer]);
 
   const startSessionClock = useCallback(async () => {
     setHasEverStarted(true);
@@ -191,10 +212,10 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     const state = await api.updateState(sessionId, "recording", base);
     if (state) {
       setRecordingState(state);
-      applyTimerAnchors(state);
+      snapBillingAnchors(state);
     }
     await refreshLiveData();
-  }, [applyTimerAnchors, armSessionClock, getWallClockElapsed, refreshLiveData, sessionId]);
+  }, [armSessionClock, getWallClockElapsed, refreshLiveData, sessionId, snapBillingAnchors]);
 
   const pauseSessionClock = useCallback(async () => {
     setIsSessionRunning(false);
@@ -203,10 +224,10 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     const state = await api.updateState(sessionId, "paused", current);
     if (state) {
       setRecordingState(state);
-      applyTimerAnchors(state);
+      snapBillingAnchors(state);
     }
     await refreshLiveData();
-  }, [applyTimerAnchors, getWallClockElapsed, pauseSessionClockLocal, refreshLiveData, sessionId]);
+  }, [getWallClockElapsed, pauseSessionClockLocal, refreshLiveData, sessionId, snapBillingAnchors]);
 
   const sendChatMessage = useCallback(
     async (speaker: ChatSpeaker, text: string) => {
@@ -267,6 +288,9 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   const handleAmbientChunk = useCallback(
     async (chunk: string) => {
       if (!chunk.trim() || loadError) return;
+      if (!isSessionRunningRef.current) {
+        await startSessionClock();
+      }
       const startAt = getWallClockElapsed();
       await api.analyzeTranscriptChunk(sessionId, chunk, {
         elapsedSeconds: startAt,
@@ -275,54 +299,65 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       setHasEverStarted(true);
       await refreshLiveData();
     },
-    [getWallClockElapsed, loadError, refreshLiveData, sessionId]
+    [getWallClockElapsed, loadError, refreshLiveData, sessionId, startSessionClock]
   );
+
+  const billingTickActive =
+    isSessionRunning &&
+    !disableTick &&
+    Boolean(activeCptCode || (recordingState?.cptElapsedSeconds ?? 0) > 0);
 
   useEffect(() => {
     refreshLiveData();
-    const intervalMs =
-      isSessionRunning && activeCptRef.current ? Math.min(pollMs, 1000) : pollMs;
-    const interval = setInterval(refreshLiveData, intervalMs);
+    const interval = setInterval(refreshLiveData, pollMs);
     return () => clearInterval(interval);
-  }, [refreshLiveData, pollMs, isSessionRunning, pipeline?.pathA.activeCpt]);
+  }, [refreshLiveData, pollMs]);
 
   useEffect(() => {
-    const billingActive =
-      isSessionRunning && Boolean(activeCptRef.current || recordingState?.cptElapsedSeconds);
-
-    if (!billingActive || disableTick) {
-      if (tickRef.current) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
+    if (!isSessionRunning || disableTick) {
+      if (sessionTickRef.current) {
+        clearInterval(sessionTickRef.current);
+        sessionTickRef.current = null;
       }
       return;
     }
 
-    tickRef.current = setInterval(() => {
-      const currentElapsed = getWallClockElapsed();
-      const delta = currentElapsed - elapsedRef.current;
-      
-      setElapsed(currentElapsed);
-      if (delta > 0) {
-        setCptElapsed((prev) => prev + delta);
-        setBillingElapsed((prev) => prev + delta);
-        setTimeLeft((prev) => Math.max(0, prev - delta));
-      }
+    sessionTickRef.current = setInterval(() => {
+      setElapsed(getWallClockElapsed());
     }, 1000);
 
     return () => {
-      if (tickRef.current) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
+      if (sessionTickRef.current) {
+        clearInterval(sessionTickRef.current);
+        sessionTickRef.current = null;
       }
     };
-  }, [
-    disableTick,
-    getWallClockElapsed,
-    isSessionRunning,
-    pipeline?.pathA.activeCpt,
-    recordingState?.cptElapsedSeconds,
-  ]);
+  }, [disableTick, getWallClockElapsed, isSessionRunning]);
+
+  useEffect(() => {
+    if (!billingTickActive) {
+      if (billingTickRef.current) {
+        clearInterval(billingTickRef.current);
+        billingTickRef.current = null;
+      }
+      return;
+    }
+
+    billingTickRef.current = setInterval(() => {
+      const anchors = billingAnchorsRef.current;
+      const deltaSec = Math.floor((Date.now() - anchors.atMs) / 1000);
+      setCptElapsed(anchors.cptSeconds + deltaSec);
+      setBillingElapsed(anchors.billingSeconds + deltaSec);
+      setTimeLeft(Math.max(0, anchors.timeLeftSeconds - deltaSec));
+    }, 1000);
+
+    return () => {
+      if (billingTickRef.current) {
+        clearInterval(billingTickRef.current);
+        billingTickRef.current = null;
+      }
+    };
+  }, [billingTickActive]);
 
   return {
     session,
@@ -336,6 +371,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     billingElapsed,
     cptElapsed,
     timeLeft,
+    activeCptCode,
     setElapsed,
     mode,
     setMode,
