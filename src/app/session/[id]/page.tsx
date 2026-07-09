@@ -36,6 +36,7 @@ export default function LiveSession() {
     elapsed,
     billingElapsed,
     cptElapsed,
+    timeLeft,
     sending,
     lastChunkError,
     chatMessages,
@@ -74,18 +75,10 @@ export default function LiveSession() {
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
   const totalBillingElapsed =
-    billingElapsed ??
-    recordingState?.billingElapsedSeconds ??
-    pipeline?.pathA.sessionTimerSec ??
-    0;
-  const activeCptSeconds =
-    cptElapsed ??
-    recordingState?.cptElapsedSeconds ??
-    pipeline?.pathA.cptElapsedSeconds ??
-    0;
-  const nextUnitAt =
-    recordingState?.nextUnitAt ?? totalBillingElapsed + (recordingState?.timeLeft ?? 480);
-  const actualTimeLeft = recordingState?.timeLeft ?? Math.max(0, nextUnitAt - totalBillingElapsed);
+    billingElapsed ?? recordingState?.billingElapsedSeconds ?? 0;
+  const activeCptSeconds = cptElapsed ?? recordingState?.cptElapsedSeconds ?? 0;
+  const hasActiveCpt = Boolean(pipeline?.pathA?.activeCpt);
+  const actualTimeLeft = timeLeft ?? recordingState?.timeLeft ?? 8 * 60;
   const nextUnitNumber = units + 1;
   const activeCptLabel =
     pipeline?.pathA.cptDisplayName ?? pipeline?.pathA.activeCpt ?? null;
@@ -130,16 +123,14 @@ export default function LiveSession() {
     // Ambient mic mode
     if (isListening) {
       stopListening();
-      setIsSessionRunning(false);
-      await api.updateState(sessionId, "paused", elapsed);
+      await pauseSessionClock();
       await refreshLiveData();
       return;
     }
 
     setHasEverStarted(true);
-    setIsSessionRunning(true);
+    await startSessionClock();
     await startListening();
-    await api.updateState(sessionId, "recording", elapsed);
     await refreshLiveData();
   };
 
@@ -195,23 +186,6 @@ export default function LiveSession() {
       </div>
     );
   }
-
-  const timerHint =
-    isSimulatorMode
-      ? isSessionRunning
-        ? "Session chat timer running"
-        : hasEverStarted
-          ? "Chat paused — tap Resume or send a message"
-          : "Tap Start, then chat as patient & therapist"
-      : isTranscribing
-        ? "Whisper is transcribing…"
-        : isListening
-          ? "Whisper ambient listening active"
-          : isSupported
-            ? hasEverStarted
-              ? "Tap Resume to continue Whisper listening"
-              : "Tap Start to begin Whisper listening"
-            : "Use Session chat — mic not available";
 
   return (
     <div className="flex flex-col gap-4 md:gap-6 relative pb-28 w-full">
@@ -326,46 +300,35 @@ export default function LiveSession() {
                 ))}
               </div>
               <div className="min-w-0">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <p className="text-4xl sm:text-5xl font-black text-medexa-gray-900 tracking-tighter tabular-nums drop-shadow-sm">
-                    {formatElapsed(elapsed)}
-                  </p>
-                  <span className="text-sm font-semibold text-medexa-gray-500">
-                    / {units || 0} Unit{units === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <p className="text-sm text-medexa-gray-500 mt-1">{timerHint}</p>
+                <p className="text-4xl sm:text-5xl font-black text-medexa-gray-900 tracking-tighter tabular-nums drop-shadow-sm">
+                  {formatElapsed(elapsed)}
+                </p>
+                <p className="text-sm text-medexa-gray-500 mt-1">Session time</p>
               </div>
             </div>
-            
-            <div className="text-left sm:text-right flex flex-col items-start sm:items-end shrink-0">
-              {pipeline?.pathA?.activeCpt ? (
+
+            <div className="text-left sm:text-right flex flex-col items-start sm:items-end shrink-0 min-w-[200px]">
+              {hasActiveCpt ? (
                 <>
-                  <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
-                    {activeCptLabel && (
-                      <span className="text-medexa-gray-900 mr-1 truncate max-w-[140px]">
-                        {activeCptLabel}
-                      </span>
-                    )}
-                    Unit {nextUnitNumber} at{" "}
-                    <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
-                  </div>
+                  <p className="text-sm font-semibold text-medexa-gray-900 truncate max-w-[220px]">
+                    {activeCptLabel ?? "Active CPT"}
+                  </p>
                   <p className="text-sm font-bold text-medexa-blue mt-1 tabular-nums">
-                    CPT {formatElapsed(activeCptSeconds)}{" "}
-                    <span className="text-medexa-gray-500 font-medium">· total</span>{" "}
-                    {formatElapsed(totalBillingElapsed)}{" "}
-                    <span className="text-medexa-gray-500 font-medium">· +</span>{" "}
-                    {formatElapsed(actualTimeLeft)}{" "}
-                    <span className="text-medexa-gray-500 font-medium">left</span>
+                    CPT {formatElapsed(activeCptSeconds)}
+                    <span className="text-medexa-gray-500 font-medium"> · timed </span>
+                    {formatElapsed(totalBillingElapsed)}
+                    <span className="text-medexa-gray-500 font-medium"> · </span>
+                    {units} unit{units === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-xs font-semibold text-medexa-gray-500 mt-1 tabular-nums">
+                    {formatElapsed(actualTimeLeft)} until unit {nextUnitNumber}
                   </p>
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
-                    Timer on standby
-                  </div>
-                  <p className="text-sm font-bold text-medexa-gray-400 mt-1">
-                    No active CPT
+                  <p className="text-sm font-semibold text-medexa-gray-500">Billing standby</p>
+                  <p className="text-xs text-medexa-gray-400 mt-1">
+                    Apply a CPT suggestion to start timed billing
                   </p>
                 </>
               )}
