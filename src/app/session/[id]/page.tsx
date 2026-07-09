@@ -7,7 +7,6 @@ import { ChevronLeft, Loader2, Pause, Play, Square } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { EntitiesSidebar } from "@/components/session/EntitiesSidebar";
 import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
@@ -23,7 +22,7 @@ export default function LiveSession() {
   const searchParams = useSearchParams();
   const isSimulatorMode = searchParams.get("simulator") === "true";
   const sessionId = params.id as string;
-  const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
+  const [mobilePanel, setMobilePanel] = useState<"insights" | "assistant">("insights");
 
   const live = useLiveSession({ sessionId });
   const {
@@ -73,15 +72,26 @@ export default function LiveSession() {
   }, [isSimulatorMode, isListening, stopListening]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
-  const cptBillingElapsed =
+  const totalBillingElapsed =
     recordingState?.billingElapsedSeconds ??
     pipeline?.pathA.sessionTimerSec ??
     billingElapsed;
-  const nextUnitAt = recordingState?.nextUnitAt ?? cptBillingElapsed + 480;
-  const actualTimeLeft = Math.max(0, nextUnitAt - cptBillingElapsed);
+  const activeCptSeconds =
+    pipeline?.pathA.cptElapsedSeconds ??
+    recordingState?.cptElapsedSeconds ??
+    0;
+  const nextUnitAt =
+    recordingState?.nextUnitAt ?? totalBillingElapsed + (recordingState?.timeLeft ?? 480);
+  const actualTimeLeft = recordingState?.timeLeft ?? Math.max(0, nextUnitAt - totalBillingElapsed);
   const nextUnitNumber = units + 1;
   const activeCptLabel =
     pipeline?.pathA.cptDisplayName ?? pipeline?.pathA.activeCpt ?? null;
+  const pendingBillingInsights = insights.filter(
+    (i) => i.type === "billing" && i.status === "pending"
+  );
+  const modifierInsight = pendingBillingInsights.find((i) =>
+    /modifier\s*59/i.test(i.question + i.description)
+  );
 
   const isActive =
     !isSimulatorMode
@@ -260,6 +270,16 @@ export default function LiveSession() {
 
       <PipelineStatusBar pipeline={pipeline} />
 
+      {modifierInsight && (
+        <Card className="p-4 rounded-2xl border-l-4 border-l-amber-500 bg-amber-50 border-amber-200 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-800 mb-1">
+            NCCI Billing Alert
+          </p>
+          <p className="font-semibold text-amber-950 text-sm">{modifierInsight.question}</p>
+          <p className="text-sm text-amber-900 mt-1">{modifierInsight.description}</p>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 min-w-0">
         <div className="lg:hidden flex gap-2 w-full min-w-0">
           <Button
@@ -270,23 +290,23 @@ export default function LiveSession() {
             }`}
             onClick={() => setMobilePanel("insights")}
           >
-            Insights ({insights.length + assistantSuggestions.length})
+            Insights ({insights.length})
           </Button>
           <Button
             type="button"
-            variant={mobilePanel === "suggestions" ? "default" : "outline"}
+            variant={mobilePanel === "assistant" ? "default" : "outline"}
             className={`flex-1 rounded-full h-10 text-sm font-semibold ${
-              mobilePanel === "suggestions" ? "bg-medexa-blue text-white" : ""
+              mobilePanel === "assistant" ? "bg-medexa-blue text-white" : ""
             }`}
-            onClick={() => setMobilePanel("suggestions")}
+            onClick={() => setMobilePanel("assistant")}
           >
-            Suggestions ({suggestions.length})
+            Assistant ({suggestions.length + (pipeline?.entities?.length ?? 0)})
           </Button>
         </div>
 
         <div
           className={`lg:col-span-2 flex flex-col gap-4 md:gap-6 min-w-0 ${
-            mobilePanel === "suggestions" ? "hidden lg:flex" : "flex"
+            mobilePanel === "assistant" ? "hidden lg:flex" : "flex"
           }`}
         >
           <Card className="p-4 md:p-6 rounded-3xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 border-transparent shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
@@ -328,8 +348,10 @@ export default function LiveSession() {
                     <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
                   </div>
                   <p className="text-sm font-bold text-medexa-blue mt-1 tabular-nums">
-                    {formatElapsed(cptBillingElapsed)}{" "}
-                    <span className="text-medexa-gray-500 font-medium">billed · +</span>{" "}
+                    CPT {formatElapsed(activeCptSeconds)}{" "}
+                    <span className="text-medexa-gray-500 font-medium">· total</span>{" "}
+                    {formatElapsed(totalBillingElapsed)}{" "}
+                    <span className="text-medexa-gray-500 font-medium">· +</span>{" "}
                     {formatElapsed(actualTimeLeft)}{" "}
                     <span className="text-medexa-gray-500 font-medium">left</span>
                   </p>
@@ -371,23 +393,23 @@ export default function LiveSession() {
           <InsightsTimeline
             sessionId={sessionId}
             insights={insights}
-            assistantSuggestions={assistantSuggestions}
+            assistantSuggestions={[]}
             onChanged={refreshLiveData}
           />
         </div>
 
         <div
-          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 min-h-0 max-h-[calc(100vh-120px)] ${
+          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col h-[calc(100vh-140px)] min-h-0 ${
             mobilePanel === "insights" ? "hidden lg:flex" : "flex"
           }`}
         >
           <SuggestionsPanel
             suggestions={suggestions}
             assistantSuggestions={assistantSuggestions}
+            entities={pipeline?.entities || []}
             showLiveHighlight={isActive}
             onApply={handleApplySuggestion}
           />
-          <EntitiesSidebar entities={pipeline?.entities || []} />
         </div>
       </div>
 
