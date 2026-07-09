@@ -101,15 +101,17 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   }, [getWallClockElapsed]);
 
   const applyTimerAnchors = useCallback((state: ApiRecordingState) => {
-    timerAnchorsRef.current = {
-      cptSeconds: state.cptElapsedSeconds ?? 0,
-      billingSeconds: state.billingElapsedSeconds ?? 0,
-      timeLeftSeconds: state.timeLeft ?? 8 * 60,
-      atMs: Date.now(),
-    };
-    setCptElapsed(timerAnchorsRef.current.cptSeconds);
-    setBillingElapsed(timerAnchorsRef.current.billingSeconds);
-    setTimeLeft(timerAnchorsRef.current.timeLeftSeconds);
+    // Only synchronize if the drift is > 3 seconds to avoid pulling the timer backwards
+    // from standard network latency during frequent polling.
+    setCptElapsed((prev) => 
+      Math.abs(prev - (state.cptElapsedSeconds ?? 0)) > 3 ? (state.cptElapsedSeconds ?? 0) : prev
+    );
+    setBillingElapsed((prev) => 
+      Math.abs(prev - (state.billingElapsedSeconds ?? 0)) > 3 ? (state.billingElapsedSeconds ?? 0) : prev
+    );
+    setTimeLeft((prev) => 
+      Math.abs(prev - (state.timeLeft ?? 8 * 60)) > 3 ? (state.timeLeft ?? 8 * 60) : prev
+    );
   }, []);
 
   const syncSessionStatus = useCallback(
@@ -297,12 +299,15 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     }
 
     tickRef.current = setInterval(() => {
-      setElapsed(getWallClockElapsed());
-      const anchors = timerAnchorsRef.current;
-      const delta = Math.floor((Date.now() - anchors.atMs) / 1000);
-      setCptElapsed(anchors.cptSeconds + delta);
-      setBillingElapsed(anchors.billingSeconds + delta);
-      setTimeLeft(Math.max(0, anchors.timeLeftSeconds - delta));
+      const currentElapsed = getWallClockElapsed();
+      const delta = currentElapsed - elapsedRef.current;
+      
+      setElapsed(currentElapsed);
+      if (delta > 0) {
+        setCptElapsed((prev) => prev + delta);
+        setBillingElapsed((prev) => prev + delta);
+        setTimeLeft((prev) => Math.max(0, prev - delta));
+      }
     }, 1000);
 
     return () => {
