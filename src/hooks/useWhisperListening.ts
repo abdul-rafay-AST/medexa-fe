@@ -31,6 +31,7 @@ function pickMimeType(): string | undefined {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+/**
  * Ambient listening via MediaRecorder → backend Groq Whisper STT.
  * Rotates the recorder every CHUNK_MS so each upload is a complete audio file.
  */
