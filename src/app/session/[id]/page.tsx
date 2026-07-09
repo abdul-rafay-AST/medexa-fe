@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Loader2, Pause, Play, Square } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
 import { TranscriptComposer } from "@/components/session/TranscriptComposer";
+import { ChatSimulatorPanel } from "@/components/simulator/ChatSimulatorPanel";
 import { useLiveSession } from "@/hooks/useLiveSession";
 import { useWhisperListening } from "@/hooks/useWhisperListening";
 import { api, formatElapsed } from "@/lib/api";
@@ -18,6 +19,8 @@ import { api, formatElapsed } from "@/lib/api";
 export default function LiveSession() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isSimulatorMode = searchParams.get("simulator") === "true";
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
 
@@ -31,8 +34,6 @@ export default function LiveSession() {
     pipeline,
     loadError,
     elapsed,
-    mode,
-    setMode,
     sending,
     lastChunkError,
     chatMessages,
@@ -57,7 +58,7 @@ export default function LiveSession() {
     transcript,
     lastChunk,
   } = useWhisperListening(sessionId, (chunk) => {
-    if (mode !== "ambient") return;
+    if (isSimulatorMode) return;
     handleAmbientChunk(chunk).catch(console.error);
   });
 
@@ -66,8 +67,8 @@ export default function LiveSession() {
   }, [stopListening]);
 
   useEffect(() => {
-    if (mode !== "ambient" && isListening) stopListening();
-  }, [mode, isListening, stopListening]);
+    if (isSimulatorMode && isListening) stopListening();
+  }, [isSimulatorMode, isListening, stopListening]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
   const timeLeft = recordingState?.timeLeft ?? 0;
@@ -75,13 +76,13 @@ export default function LiveSession() {
   const nextUnitNumber = units + 1;
 
   const isActive =
-    mode === "ambient"
+    !isSimulatorMode
       ? isListening || isTranscribing
       : isSessionRunning || chatMessages.length > 0 || sending;
 
   /** Bottom-bar primary control: Start → Pause → Resume */
   const primaryLabel =
-    mode === "ambient"
+    !isSimulatorMode
       ? isListening
         ? "Pause"
         : hasEverStarted
@@ -96,7 +97,7 @@ export default function LiveSession() {
   const primaryIsPause = primaryLabel === "Pause";
 
   const handlePrimaryControl = async () => {
-    if (mode === "chat") {
+    if (isSimulatorMode) {
       if (isSessionRunning) {
         await pauseSessionClock();
       } else {
@@ -175,7 +176,7 @@ export default function LiveSession() {
   }
 
   const timerHint =
-    mode === "chat"
+    isSimulatorMode
       ? isSessionRunning
         ? "Session chat timer running"
         : hasEverStarted
@@ -317,23 +318,26 @@ export default function LiveSession() {
             </div>
           </Card>
 
-          <TranscriptComposer
-            mode={mode}
-            onModeChange={setMode}
-            elapsed={elapsed}
-            isSessionRunning={isSessionRunning}
-            hasEverStarted={hasEverStarted}
-            sending={sending}
-            error={lastChunkError}
-            chatMessages={chatMessages}
-            ambientTranscript={transcript}
-            ambientInterim={
-              isTranscribing ? " (transcribing…)" : lastChunk ? `Last: ${lastChunk}` : ""
-            }
-            speechSupported={isSupported}
-            speechError={speechError}
-            onSendChat={sendChatMessage}
-          />
+          {isSimulatorMode ? (
+            <ChatSimulatorPanel
+              elapsed={elapsed}
+              isSessionRunning={isSessionRunning}
+              hasEverStarted={hasEverStarted}
+              sending={sending}
+              error={lastChunkError}
+              chatMessages={chatMessages}
+              onSendChat={sendChatMessage}
+            />
+          ) : (
+            <TranscriptComposer
+              ambientTranscript={transcript}
+              ambientInterim={
+                isTranscribing ? " (transcribing…)" : lastChunk ? `Last: ${lastChunk}` : ""
+              }
+              speechSupported={isSupported}
+              speechError={speechError}
+            />
+          )}
 
           <InsightsTimeline
             sessionId={sessionId}

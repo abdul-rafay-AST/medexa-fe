@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
+import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2, MessageSquareText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, StartSessionRequest } from "@/lib/api";
@@ -55,20 +55,56 @@ export default function Dashboard() {
           </h1>
         </div>
 
-        <div onClick={() => !isStarting && handleStartSession()} className="cursor-pointer group">
-          <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(37,99,235,0.12)] transition-shadow border-medexa-gray-100 w-full md:min-w-[320px] h-full">
-            <div className="h-12 w-12 rounded-full bg-medexa-blue-light flex items-center justify-center text-medexa-blue shrink-0 group-hover:scale-105 transition-transform">
-              {isStarting ? <Loader2 className="h-6 w-6 animate-spin" /> : <Mic className="h-6 w-6" />}
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg text-medexa-gray-900">
-                {isStarting ? "Starting Session..." : "Start a new session?"}
-              </h3>
-              <p className="text-sm text-medexa-gray-500">
-                &ldquo;Hey Medexa, start a new session with Samuel Thompson&rdquo;
-              </p>
-            </div>
-          </Card>
+        <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+          <div onClick={() => !isStarting && handleStartSession()} className="cursor-pointer group flex-1">
+            <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(37,99,235,0.12)] transition-shadow border-medexa-gray-100 h-full">
+              <div className="h-12 w-12 rounded-full bg-medexa-blue-light flex items-center justify-center text-medexa-blue shrink-0 group-hover:scale-105 transition-transform">
+                {isStarting ? <Loader2 className="h-6 w-6 animate-spin" /> : <Mic className="h-6 w-6" />}
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg text-medexa-gray-900">
+                  {isStarting ? "Starting..." : "Start Session"}
+                </h3>
+                <p className="text-xs text-medexa-gray-500 mt-1">
+                  Ambient listening mic
+                </p>
+              </div>
+            </Card>
+          </div>
+
+          <div
+            onClick={() => {
+              if (isStarting) return;
+              setIsStarting(true);
+              setStartError(null);
+              api.startSession(SAMUEL_PATIENT).then((res) => {
+                if (res?.session?.id) {
+                  router.push(`/session/${res.session.id}?simulator=true`);
+                } else {
+                  setStartError("Could not start session.");
+                  setIsStarting(false);
+                }
+              }).catch(() => {
+                setStartError("Could not connect to the server.");
+                setIsStarting(false);
+              });
+            }}
+            className="cursor-pointer group flex-1"
+          >
+            <Card className="p-4 md:p-6 rounded-2xl flex items-center gap-4 bg-medexa-blue/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgba(37,99,235,0.12)] transition-shadow border-medexa-blue/20 h-full">
+              <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center text-medexa-blue shrink-0 group-hover:scale-105 transition-transform shadow-sm">
+                {isStarting ? <Loader2 className="h-6 w-6 animate-spin" /> : <MessageSquareText className="h-6 w-6" />}
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg text-medexa-blue">
+                  {isStarting ? "Starting..." : "Chat Simulator"}
+                </h3>
+                <p className="text-xs text-medexa-gray-500 mt-1">
+                  Test the Path A/B/C pipelines
+                </p>
+              </div>
+            </Card>
+          </div>
         </div>
       </section>
 
