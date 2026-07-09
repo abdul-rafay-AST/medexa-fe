@@ -89,23 +89,7 @@ export function InsightsTimeline({
           </div>
         ))}
 
-        {assistantSuggestions
-          .filter((s) => s.status === "active")
-          .map((item) => (
-            <div key={item.id} className="relative">
-              <span className="hidden sm:block absolute -left-[1.35rem] top-5 h-3 w-3 rounded-full bg-medexa-green ring-4 ring-medexa-gray-50 z-10" />
-              <Card className="p-4 rounded-2xl border-l-4 border-l-medexa-blue border border-medexa-gray-100 bg-gradient-to-br from-white to-medexa-blue-light/30 shadow-sm">
-                <Badge className="bg-medexa-green hover:bg-medexa-green text-white rounded-full px-3 mb-2 font-semibold tracking-wide">
-                  Path B · {item.kind.replace(/_/g, " ")}
-                </Badge>
-                <p className="font-semibold text-medexa-gray-900 text-sm">{item.title}</p>
-                <p className="text-sm text-medexa-gray-700 mt-1 break-words">{item.body}</p>
-                <p className="text-[10px] text-medexa-gray-400 mt-2">{item.disclaimer}</p>
-              </Card>
-            </div>
-          ))}
-
-        {insights.length === 0 && assistantSuggestions.length === 0 && (
+        {insights.length === 0 && (
           <div className="text-sm text-medexa-gray-400 pl-1 sm:pl-2">
             Send a transcript chunk below — Path A insights will appear here.
           </div>

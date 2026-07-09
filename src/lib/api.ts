@@ -79,6 +79,15 @@ export interface ApiPathBTriggerStatus {
   createdAt: string;
 }
 
+export interface ApiExtractedEntity {
+  id: string;
+  phrase: string;
+  region?: string;
+  cpt?: string;
+  icd10?: string;
+  isBillable: boolean;
+}
+
 export interface ApiLivePipelineSnapshot {
   sessionId: string;
   billingRegion: string;
@@ -108,6 +117,7 @@ export interface ApiLivePipelineSnapshot {
   insights: ApiInsight[];
   billingSuggestions: ApiSuggestion[];
   assistantSuggestions: ApiAssistantSuggestion[];
+  entities: ApiExtractedEntity[];
   transcriptPreview: string;
 }
 

@@ -11,6 +11,7 @@ import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
 import { TranscriptComposer } from "@/components/session/TranscriptComposer";
+import { EntitiesSidebar } from "@/components/session/EntitiesSidebar";
 import { ChatSimulatorPanel } from "@/components/simulator/ChatSimulatorPanel";
 import { useLiveSession } from "@/hooks/useLiveSession";
 import { useWhisperListening } from "@/hooks/useWhisperListening";
@@ -24,7 +25,7 @@ export default function LiveSession() {
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
 
-  const live = useLiveSession({ sessionId });
+  const live = useLiveSession({ sessionId, disableTick: isSimulatorMode });
   const {
     session,
     recordingState,
@@ -296,9 +297,9 @@ export default function LiveSession() {
               </div>
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-3xl md:text-4xl font-bold text-medexa-blue tracking-tight">
+                  <p className="text-4xl sm:text-5xl font-black text-medexa-gray-900 tracking-tighter tabular-nums drop-shadow-sm">
                     {formatElapsed(elapsed)}
-                  </span>
+                  </p>
                   <span className="text-sm font-semibold text-medexa-gray-500">
                     / {units || 0} Unit{units === 1 ? "" : "s"}
                   </span>
@@ -306,15 +307,29 @@ export default function LiveSession() {
                 <p className="text-sm text-medexa-gray-500 mt-1">{timerHint}</p>
               </div>
             </div>
+            
             <div className="text-left sm:text-right flex flex-col items-start sm:items-end shrink-0">
-              <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
-                Unit {nextUnitNumber} at{" "}
-                <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
-              </div>
-              <p className="text-sm font-bold text-medexa-blue mt-1">
-                + {formatElapsed(timeLeft)}{" "}
-                <span className="text-medexa-gray-500 font-medium">left</span>
-              </p>
+              {pipeline?.pathA?.activeCpt ? (
+                <>
+                  <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
+                    Unit {nextUnitNumber} at{" "}
+                    <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
+                  </div>
+                  <p className="text-sm font-bold text-medexa-blue mt-1">
+                    + {formatElapsed(timeLeft)}{" "}
+                    <span className="text-medexa-gray-500 font-medium">left</span>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
+                    Timer on standby
+                  </div>
+                  <p className="text-sm font-bold text-medexa-gray-400 mt-1">
+                    No active CPT
+                  </p>
+                </>
+              )}
             </div>
           </Card>
 
@@ -348,15 +363,17 @@ export default function LiveSession() {
         </div>
 
         <div
-          className={`lg:sticky lg:top-24 lg:self-start min-w-0 ${
-            mobilePanel === "insights" ? "hidden lg:block" : "block"
+          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 ${
+            mobilePanel === "insights" ? "hidden lg:flex" : "flex"
           }`}
         >
           <SuggestionsPanel
             suggestions={suggestions}
+            assistantSuggestions={assistantSuggestions}
             showLiveHighlight={isActive}
             onApply={handleApplySuggestion}
           />
+          <EntitiesSidebar entities={pipeline?.entities || []} />
         </div>
       </div>
 

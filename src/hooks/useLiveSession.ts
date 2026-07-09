@@ -25,9 +25,10 @@ export interface ChatMessage {
 export interface UseLiveSessionOptions {
   sessionId: string;
   pollMs?: number;
+  disableTick?: boolean;
 }
 
-export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptions) {
+export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }: UseLiveSessionOptions) {
   const [session, setSession] = useState<ApiSession | null>(null);
   const [recordingState, setRecordingState] = useState<ApiRecordingState | null>(null);
   const [insights, setInsights] = useState<ApiInsight[]>([]);
@@ -182,7 +183,7 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
 
   // Live wall-clock tick for chat + ambient while session is running.
   useEffect(() => {
-    if (!isSessionRunning) {
+    if (!isSessionRunning || disableTick) {
       if (tickRef.current) {
         clearInterval(tickRef.current);
         tickRef.current = null;
@@ -198,7 +199,7 @@ export function useLiveSession({ sessionId, pollMs = 2000 }: UseLiveSessionOptio
         tickRef.current = null;
       }
     };
-  }, [isSessionRunning]);
+  }, [isSessionRunning, disableTick]);
 
   return {
     session,
