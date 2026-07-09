@@ -11,7 +11,6 @@ import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
 import { TranscriptComposer } from "@/components/session/TranscriptComposer";
-import { EntitiesSidebar } from "@/components/session/EntitiesSidebar";
 import { ChatSimulatorPanel } from "@/components/simulator/ChatSimulatorPanel";
 import { useLiveSession } from "@/hooks/useLiveSession";
 import { useWhisperListening } from "@/hooks/useWhisperListening";
@@ -72,8 +71,8 @@ export default function LiveSession() {
   }, [isSimulatorMode, isListening, stopListening]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
-  const timeLeft = recordingState?.timeLeft ?? 0;
-  const nextUnitAt = recordingState?.nextUnitAt ?? elapsed + timeLeft;
+  const nextUnitAt = recordingState?.nextUnitAt ?? pipeline?.pathA.sessionTimerSec ?? elapsed + 480;
+  const actualTimeLeft = Math.max(0, nextUnitAt - elapsed);
   const nextUnitNumber = units + 1;
 
   const isActive =
@@ -316,7 +315,7 @@ export default function LiveSession() {
                     <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
                   </div>
                   <p className="text-sm font-bold text-medexa-blue mt-1">
-                    + {formatElapsed(timeLeft)}{" "}
+                    + {formatElapsed(actualTimeLeft)}{" "}
                     <span className="text-medexa-gray-500 font-medium">left</span>
                   </p>
                 </>
@@ -363,17 +362,17 @@ export default function LiveSession() {
         </div>
 
         <div
-          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 ${
+          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 h-[calc(100vh-120px)] ${
             mobilePanel === "insights" ? "hidden lg:flex" : "flex"
           }`}
         >
           <SuggestionsPanel
             suggestions={suggestions}
             assistantSuggestions={assistantSuggestions}
+            entities={pipeline?.entities || []}
             showLiveHighlight={isActive}
             onApply={handleApplySuggestion}
           />
-          <EntitiesSidebar entities={pipeline?.entities || []} />
         </div>
       </div>
 
