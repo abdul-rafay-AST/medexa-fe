@@ -7,6 +7,7 @@ import { ChevronLeft, Loader2, Pause, Play, Square } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntitiesSidebar } from "@/components/session/EntitiesSidebar";
 import { InsightsTimeline } from "@/components/session/InsightsTimeline";
 import { PipelineStatusBar } from "@/components/session/PipelineStatusBar";
 import { SuggestionsPanel } from "@/components/session/SuggestionsPanel";
@@ -24,7 +25,7 @@ export default function LiveSession() {
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "suggestions">("insights");
 
-  const live = useLiveSession({ sessionId, disableTick: isSimulatorMode });
+  const live = useLiveSession({ sessionId });
   const {
     session,
     recordingState,
@@ -34,6 +35,7 @@ export default function LiveSession() {
     pipeline,
     loadError,
     elapsed,
+    billingElapsed,
     sending,
     lastChunkError,
     chatMessages,
@@ -71,9 +73,15 @@ export default function LiveSession() {
   }, [isSimulatorMode, isListening, stopListening]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
-  const nextUnitAt = recordingState?.nextUnitAt ?? pipeline?.pathA.sessionTimerSec ?? elapsed + 480;
-  const actualTimeLeft = Math.max(0, nextUnitAt - elapsed);
+  const cptBillingElapsed =
+    recordingState?.billingElapsedSeconds ??
+    pipeline?.pathA.sessionTimerSec ??
+    billingElapsed;
+  const nextUnitAt = recordingState?.nextUnitAt ?? cptBillingElapsed + 480;
+  const actualTimeLeft = Math.max(0, nextUnitAt - cptBillingElapsed);
   const nextUnitNumber = units + 1;
+  const activeCptLabel =
+    pipeline?.pathA.cptDisplayName ?? pipeline?.pathA.activeCpt ?? null;
 
   const isActive =
     !isSimulatorMode
@@ -311,11 +319,18 @@ export default function LiveSession() {
               {pipeline?.pathA?.activeCpt ? (
                 <>
                   <div className="flex items-center gap-1 text-medexa-gray-500 text-sm font-semibold">
+                    {activeCptLabel && (
+                      <span className="text-medexa-gray-900 mr-1 truncate max-w-[140px]">
+                        {activeCptLabel}
+                      </span>
+                    )}
                     Unit {nextUnitNumber} at{" "}
                     <span className="text-medexa-gray-900 ml-1">{formatElapsed(nextUnitAt)}</span>
                   </div>
-                  <p className="text-sm font-bold text-medexa-blue mt-1">
-                    + {formatElapsed(actualTimeLeft)}{" "}
+                  <p className="text-sm font-bold text-medexa-blue mt-1 tabular-nums">
+                    {formatElapsed(cptBillingElapsed)}{" "}
+                    <span className="text-medexa-gray-500 font-medium">billed · +</span>{" "}
+                    {formatElapsed(actualTimeLeft)}{" "}
                     <span className="text-medexa-gray-500 font-medium">left</span>
                   </p>
                 </>
@@ -362,17 +377,17 @@ export default function LiveSession() {
         </div>
 
         <div
-          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 h-[calc(100vh-120px)] ${
+          className={`lg:sticky lg:top-24 lg:self-start min-w-0 flex flex-col gap-4 min-h-0 max-h-[calc(100vh-120px)] ${
             mobilePanel === "insights" ? "hidden lg:flex" : "flex"
           }`}
         >
           <SuggestionsPanel
             suggestions={suggestions}
             assistantSuggestions={assistantSuggestions}
-            entities={pipeline?.entities || []}
             showLiveHighlight={isActive}
             onApply={handleApplySuggestion}
           />
+          <EntitiesSidebar entities={pipeline?.entities || []} />
         </div>
       </div>
 

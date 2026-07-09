@@ -45,10 +45,43 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
+  const sessionStartedAtRef = useRef<number | null>(null);
+  const elapsedAtStartRef = useRef(0);
+  const isSessionRunningRef = useRef(false);
 
   useEffect(() => {
     elapsedRef.current = elapsed;
   }, [elapsed]);
+
+  useEffect(() => {
+    isSessionRunningRef.current = isSessionRunning;
+  }, [isSessionRunning]);
+
+  const getWallClockElapsed = useCallback(() => {
+    if (sessionStartedAtRef.current === null) {
+      return elapsedAtStartRef.current;
+    }
+    if (!isSessionRunningRef.current) {
+      return elapsedRef.current;
+    }
+    return (
+      elapsedAtStartRef.current +
+      Math.floor((Date.now() - sessionStartedAtRef.current) / 1000)
+    );
+  }, []);
+
+  const armSessionClock = useCallback((baseElapsed: number) => {
+    elapsedAtStartRef.current = baseElapsed;
+    sessionStartedAtRef.current = Date.now();
+    setElapsed(baseElapsed);
+  }, []);
+
+  const pauseSessionClockLocal = useCallback(() => {
+    const current = getWallClockElapsed();
+    elapsedAtStartRef.current = current;
+    sessionStartedAtRef.current = null;
+    setElapsed(current);
+  }, [getWallClockElapsed]);
 
   const refreshLiveData = useCallback(async () => {
     const [sessionData, state, resInsights, resSuggestions, resAssistant, resPipeline] =
@@ -79,35 +112,55 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       }
       if (state.status === "recording") {
         setIsSessionRunning(true);
-      } else if (state.status === "paused" || state.status === "stopped" || state.status === "idle") {
-        // Don't force-stop local chat timer from poll races while actively chatting;
-        // only sync elapsed upward.
       }
-      setElapsed((prev) => Math.max(prev, state.elapsedSeconds));
+      const backendWall = state.elapsedSeconds;
+      if (isSessionRunningRef.current && sessionStartedAtRef.current !== null) {
+        const localWall = getWallClockElapsed();
+        const synced = Math.max(localWall, backendWall);
+        elapsedAtStartRef.current = synced;
+        sessionStartedAtRef.current = Date.now();
+        setElapsed(synced);
+      } else {
+        setElapsed((prev) => Math.max(prev, backendWall));
+        elapsedAtStartRef.current = Math.max(elapsedAtStartRef.current, backendWall);
+      }
     }
     if (resInsights) setInsights(resInsights);
     if (resSuggestions) setSuggestions(resSuggestions);
     if (resAssistant) setAssistantSuggestions(resAssistant);
     if (resPipeline) {
       setPipeline(resPipeline);
-      setElapsed((prev) => Math.max(prev, resPipeline.elapsedSeconds));
+      const backendWall = resPipeline.elapsedSeconds;
+      if (isSessionRunningRef.current && sessionStartedAtRef.current !== null) {
+        const localWall = getWallClockElapsed();
+        const synced = Math.max(localWall, backendWall);
+        elapsedAtStartRef.current = synced;
+        sessionStartedAtRef.current = Date.now();
+        setElapsed(synced);
+      } else {
+        setElapsed((prev) => Math.max(prev, backendWall));
+      }
     }
-  }, [sessionId]);
+  }, [getWallClockElapsed, sessionId]);
 
   const startSessionClock = useCallback(async () => {
     setHasEverStarted(true);
     setIsSessionRunning(true);
-    const state = await api.updateState(sessionId, "recording", elapsedRef.current);
+    const base = getWallClockElapsed();
+    armSessionClock(base);
+    const state = await api.updateState(sessionId, "recording", base);
     if (state) setRecordingState(state);
     await refreshLiveData();
-  }, [refreshLiveData, sessionId]);
+  }, [armSessionClock, getWallClockElapsed, refreshLiveData, sessionId]);
 
   const pauseSessionClock = useCallback(async () => {
     setIsSessionRunning(false);
-    const state = await api.updateState(sessionId, "paused", elapsedRef.current);
+    const current = getWallClockElapsed();
+    pauseSessionClockLocal();
+    const state = await api.updateState(sessionId, "paused", current);
     if (state) setRecordingState(state);
     await refreshLiveData();
-  }, [refreshLiveData, sessionId]);
+  }, [getWallClockElapsed, pauseSessionClockLocal, refreshLiveData, sessionId]);
 
   const sendChatMessage = useCallback(
     async (speaker: ChatSpeaker, text: string) => {
@@ -118,7 +171,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         await startSessionClock();
       }
 
-      const startAt = elapsedRef.current;
+      const startAt = getWallClockElapsed();
       const durationSeconds = Math.max(5, Math.min(30, Math.ceil(body.split(/\s+/).length * 1.5)));
       const labeled = `${speaker === "therapist" ? "Therapist" : "Patient"}: ${body}`;
 
@@ -144,8 +197,6 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
             atSeconds: startAt,
           },
         ]);
-        // Keep live timer ahead of the chunk window so the next line lands after this one.
-        setElapsed((prev) => Math.max(prev, startAt + durationSeconds));
         setIsSessionRunning(true);
         setHasEverStarted(true);
         await refreshLiveData();
@@ -157,22 +208,28 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         setSending(false);
       }
     },
-    [isSessionRunning, loadError, refreshLiveData, sessionId, startSessionClock]
+    [
+      getWallClockElapsed,
+      isSessionRunning,
+      loadError,
+      refreshLiveData,
+      sessionId,
+      startSessionClock,
+    ]
   );
 
   const handleAmbientChunk = useCallback(
     async (chunk: string) => {
       if (!chunk.trim() || loadError) return;
-      const startAt = elapsedRef.current;
+      const startAt = getWallClockElapsed();
       await api.analyzeTranscriptChunk(sessionId, chunk, {
         elapsedSeconds: startAt,
-        durationSeconds: 1, // Only advance backend simulated clock slightly for real-time
+        durationSeconds: 1,
       });
-      // Do not manually jump elapsed here. The tick interval handles real-time advancement.
       setHasEverStarted(true);
       await refreshLiveData();
     },
-    [loadError, refreshLiveData, sessionId]
+    [getWallClockElapsed, loadError, refreshLiveData, sessionId]
   );
 
   useEffect(() => {
@@ -181,7 +238,6 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     return () => clearInterval(interval);
   }, [refreshLiveData, pollMs]);
 
-  // Live wall-clock tick for chat + ambient while session is running.
   useEffect(() => {
     if (!isSessionRunning || disableTick) {
       if (tickRef.current) {
@@ -191,7 +247,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       return;
     }
     tickRef.current = setInterval(() => {
-      setElapsed((prev) => prev + 1);
+      setElapsed(getWallClockElapsed());
     }, 1000);
     return () => {
       if (tickRef.current) {
@@ -199,7 +255,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         tickRef.current = null;
       }
     };
-  }, [isSessionRunning, disableTick]);
+  }, [disableTick, getWallClockElapsed, isSessionRunning]);
 
   return {
     session,
@@ -210,6 +266,10 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     pipeline,
     loadError,
     elapsed,
+    billingElapsed:
+      recordingState?.billingElapsedSeconds ??
+      pipeline?.pathA.sessionTimerSec ??
+      0,
     setElapsed,
     mode,
     setMode,
@@ -225,5 +285,6 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     pauseSessionClock,
     sendChatMessage,
     handleAmbientChunk,
+    getWallClockElapsed,
   };
 }

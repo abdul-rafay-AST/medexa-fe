@@ -21,6 +21,8 @@ export interface ApiSession {
 export interface ApiRecordingState {
   status: RecordingStatus;
   elapsedSeconds: number;
+  billingElapsedSeconds: number;
+  cptElapsedSeconds: number;
   units: number;
   nextUnitAt: number;
   timeLeft: number;
@@ -98,7 +100,9 @@ export interface ApiLivePipelineSnapshot {
     alertCount: number;
     suggestionCount: number;
     activeCpt: string | null;
+    cptDisplayName: string | null;
     sessionTimerSec: number;
+    cptElapsedSeconds: number;
     units: number;
   };
   pathB: {
