@@ -131,7 +131,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
           durationSeconds,
         });
         if (!analysis) {
-          setLastChunkError("Message failed — is the backend running on localhost:8000?");
+          setLastChunkError("Message failed. Please check network connection or backend logs.");
           return false;
         }
 
@@ -166,9 +166,9 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       const startAt = elapsedRef.current;
       await api.analyzeTranscriptChunk(sessionId, chunk, {
         elapsedSeconds: startAt,
-        durationSeconds: 15,
+        durationSeconds: 1, // Only advance backend simulated clock slightly for real-time
       });
-      setElapsed((prev) => Math.max(prev, startAt + 15));
+      // Do not manually jump elapsed here. The tick interval handles real-time advancement.
       setHasEverStarted(true);
       await refreshLiveData();
     },
