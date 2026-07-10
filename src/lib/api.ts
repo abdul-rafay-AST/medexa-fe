@@ -88,16 +88,25 @@ export interface ApiDiarizedUtterance {
   atSeconds: number;
   endSeconds?: number;
   confidence: number;
-  diarizationMethod?: "voice" | "text" | "hybrid";
+  diarizationMethod?: "voice" | "text" | "hybrid" | "deepgram";
+}
+
+export interface ApiAudioSegment {
+  start: number;
+  end: number;
+  text: string;
+  speaker: "therapist" | "patient";
 }
 
 export interface ApiTranscribeAudioResult {
   transcript: string;
   speaker: "therapist" | "patient";
   speakerConfidence: number;
-  diarizationMethod?: "voice" | "text" | "hybrid";
+  diarizationMethod?: "voice" | "text" | "hybrid" | "deepgram";
+  transcriptionProvider?: "deepgram" | "groq_whisper" | "aws_transcribe";
   atSeconds: number;
   endSeconds?: number;
+  audioSegments?: ApiAudioSegment[];
 }
 
 export interface ApiExtractedEntity {
@@ -284,17 +293,21 @@ class ApiClient {
         transcript: string;
         speaker?: "therapist" | "patient";
         speakerConfidence?: number;
-        diarizationMethod?: "voice" | "text" | "hybrid";
+        diarizationMethod?: "voice" | "text" | "hybrid" | "deepgram";
+        transcriptionProvider?: "deepgram" | "groq_whisper" | "aws_transcribe";
         atSeconds?: number;
         endSeconds?: number;
+        audioSegments?: ApiAudioSegment[];
       };
       return {
         transcript: data.transcript,
         speaker: data.speaker ?? "patient",
         speakerConfidence: data.speakerConfidence ?? 0.5,
         diarizationMethod: data.diarizationMethod,
+        transcriptionProvider: data.transcriptionProvider,
         atSeconds: data.atSeconds ?? 0,
         endSeconds: data.endSeconds,
+        audioSegments: data.audioSegments,
       };
     } catch (e) {
       console.error("transcribeAudio failed:", e);

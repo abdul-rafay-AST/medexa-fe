@@ -24,13 +24,13 @@ export function TranscriptComposer({
           Ambient listening
         </div>
         <p className="text-[10px] text-medexa-gray-400 font-medium">
-          Voice pitch + timbre diarization
+          Deepgram STT + voice diarization
         </p>
       </div>
 
       <p className="text-xs text-medexa-gray-500">
         {speechSupported
-          ? "Live transcript with patient / therapist labels from voice fingerprinting (~5s clips → Path A)."
+          ? "Live transcript with patient / therapist labels (Deepgram + voice clustering)."
           : "Microphone not supported in this browser."}
       </p>
 
@@ -63,9 +63,15 @@ export function TranscriptComposer({
                     <span className="text-[10px] font-bold uppercase tracking-wide">
                       {isTherapist ? "Therapist" : "Patient"}
                     </span>
-                    {msg.diarizationMethod && msg.diarizationMethod !== "text" && (
+                    {msg.diarizationMethod && (
                       <span className="text-[9px] uppercase tracking-wide opacity-70">
-                        {msg.diarizationMethod === "voice" ? "Voice" : "Voice+text"}
+                        {msg.diarizationMethod === "deepgram"
+                          ? "Deepgram"
+                          : msg.diarizationMethod === "hybrid"
+                            ? "Deepgram+voice"
+                            : msg.diarizationMethod === "voice"
+                              ? "Voice"
+                              : "Text"}
                       </span>
                     )}
                     <span className="text-[10px] ml-auto tabular-nums">

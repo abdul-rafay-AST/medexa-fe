@@ -46,7 +46,7 @@ function pickMimeType(): string | undefined {
 }
 
 /**
- * Ambient listening via MediaRecorder → backend Groq Whisper STT + role diarization.
+ * Ambient listening via MediaRecorder → backend Deepgram STT + voice/Deepgram diarization.
  */
 export function useWhisperListening(
   sessionId: string,
@@ -147,18 +147,31 @@ export function useWhisperListening(
             const spacer = prev && !prev.endsWith(" ") ? " " : "";
             return prev + spacer + text + " ";
           });
-          setUtterances((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${prev.length}`,
-              speaker: result.speaker,
-              text,
-              atSeconds: result.atSeconds,
-              endSeconds: result.endSeconds ?? result.atSeconds + 5,
-              confidence: result.speakerConfidence,
-              diarizationMethod: result.diarizationMethod,
-            },
-          ]);
+          const segmentUtterances =
+            result.audioSegments?.filter((segment) => segment.text.trim()) ?? [];
+          const items =
+            segmentUtterances.length > 1
+              ? segmentUtterances.map((segment, index) => ({
+                  id: `${Date.now()}-${index}`,
+                  speaker: segment.speaker,
+                  text: segment.text.trim(),
+                  atSeconds: result.atSeconds + Math.floor(segment.start),
+                  endSeconds: result.atSeconds + Math.ceil(segment.end || segment.start + 1),
+                  confidence: result.speakerConfidence,
+                  diarizationMethod: result.diarizationMethod,
+                }))
+              : [
+                  {
+                    id: `${Date.now()}-${result.atSeconds}`,
+                    speaker: result.speaker,
+                    text,
+                    atSeconds: result.atSeconds,
+                    endSeconds: result.endSeconds ?? result.atSeconds + 5,
+                    confidence: result.speakerConfidence,
+                    diarizationMethod: result.diarizationMethod,
+                  },
+                ];
+          setUtterances((prev) => [...prev, ...items]);
           onChunkRef.current?.(text);
         }
       } catch (e) {
