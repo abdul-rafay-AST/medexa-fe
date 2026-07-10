@@ -67,6 +67,8 @@ export default function LiveSession() {
     stopListening,
     transcript,
     lastChunk,
+    utterances,
+    syncUtterances,
   } = useWhisperListening(sessionId, () => {
     if (isSimulatorMode) return;
     handleAmbientTranscribed().catch(console.error);
@@ -124,6 +126,12 @@ export default function LiveSession() {
     micBlocked,
     startAmbientSession,
   ]);
+
+  useEffect(() => {
+    if (pipeline?.diarizedUtterances?.length) {
+      syncUtterances(pipeline.diarizedUtterances);
+    }
+  }, [pipeline?.diarizedUtterances, syncUtterances]);
 
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
   const totalBillingElapsed = billingElapsed;
@@ -414,9 +422,9 @@ export default function LiveSession() {
             />
           ) : (
             <TranscriptComposer
-              ambientTranscript={transcript}
+              utterances={utterances}
               ambientInterim={
-                isTranscribing ? " (transcribing…)" : lastChunk ? `Last: ${lastChunk}` : ""
+                isTranscribing ? "Transcribing…" : lastChunk ? `Last: ${lastChunk}` : undefined
               }
               speechSupported={isSupported}
               speechError={speechError}

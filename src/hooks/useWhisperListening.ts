@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiDiarizedUtterance } from "@/lib/api";
 
 export interface UseWhisperListeningReturn {
   isListening: boolean;
@@ -10,13 +10,14 @@ export interface UseWhisperListeningReturn {
   error: string | null;
   transcript: string;
   lastChunk: string;
+  utterances: ApiDiarizedUtterance[];
   startListening: () => Promise<boolean>;
   stopListening: () => void;
   resetTranscript: () => void;
+  syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
 const CHUNK_MS = 5000;
-/** Groq rejects very small / headerless fragments; skip tiny blobs. */
 const MIN_UPLOAD_BYTES = 1200;
 
 function pickMimeType(): string | undefined {
@@ -32,8 +33,7 @@ function pickMimeType(): string | undefined {
 }
 
 /**
- * Ambient listening via MediaRecorder → backend Groq Whisper STT.
- * Rotates the recorder every CHUNK_MS so each upload is a complete audio file.
+ * Ambient listening via MediaRecorder → backend Groq Whisper STT + role diarization.
  */
 export function useWhisperListening(
   sessionId: string,
@@ -45,6 +45,7 @@ export function useWhisperListening(
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [lastChunk, setLastChunk] = useState("");
+  const [utterances, setUtterances] = useState<ApiDiarizedUtterance[]>([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -68,6 +69,10 @@ export function useWhisperListening(
     mimeTypeRef.current = pickMimeType() ?? "audio/webm";
   }, []);
 
+  const syncUtterances = useCallback((items: ApiDiarizedUtterance[]) => {
+    if (items.length) setUtterances(items);
+  }, []);
+
   const stopTracks = useCallback(() => {
     if (rotateTimerRef.current) {
       clearInterval(rotateTimerRef.current);
@@ -87,12 +92,23 @@ export function useWhisperListening(
       try {
         const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current);
         const text = (result?.transcript || "").trim();
-        if (text) {
+        if (text && result) {
           setLastChunk(text);
           setTranscript((prev) => {
             const spacer = prev && !prev.endsWith(" ") ? " " : "";
             return prev + spacer + text + " ";
           });
+          setUtterances((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${prev.length}`,
+              speaker: result.speaker,
+              text,
+              atSeconds: result.atSeconds,
+              endSeconds: result.endSeconds ?? result.atSeconds + 5,
+              confidence: result.speakerConfidence,
+            },
+          ]);
           onChunkRef.current?.(text);
         }
       } catch (e) {
@@ -211,6 +227,7 @@ export function useWhisperListening(
   const resetTranscript = useCallback(() => {
     setTranscript("");
     setLastChunk("");
+    setUtterances([]);
   }, []);
 
   useEffect(() => {
@@ -227,8 +244,10 @@ export function useWhisperListening(
     error,
     transcript,
     lastChunk,
+    utterances,
     startListening,
     stopListening,
     resetTranscript,
+    syncUtterances,
   };
 }

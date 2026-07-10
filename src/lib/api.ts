@@ -81,6 +81,23 @@ export interface ApiPathBTriggerStatus {
   createdAt: string;
 }
 
+export interface ApiDiarizedUtterance {
+  id: string;
+  speaker: "therapist" | "patient";
+  text: string;
+  atSeconds: number;
+  endSeconds?: number;
+  confidence: number;
+}
+
+export interface ApiTranscribeAudioResult {
+  transcript: string;
+  speaker: "therapist" | "patient";
+  speakerConfidence: number;
+  atSeconds: number;
+  endSeconds?: number;
+}
+
 export interface ApiExtractedEntity {
   id: string;
   phrase: string;
@@ -123,6 +140,7 @@ export interface ApiLivePipelineSnapshot {
   billingSuggestions: ApiSuggestion[];
   assistantSuggestions: ApiAssistantSuggestion[];
   entities: ApiExtractedEntity[];
+  diarizedUtterances: ApiDiarizedUtterance[];
   transcriptPreview: string;
 }
 
@@ -233,7 +251,7 @@ class ApiClient {
     sessionId: string,
     blob: Blob,
     mimeType?: string
-  ): Promise<{ transcript: string } | null> {
+  ): Promise<ApiTranscribeAudioResult | null> {
     try {
       const apiBase = this.getApiUrl();
       const form = new FormData();
@@ -256,7 +274,20 @@ class ApiClient {
         }
         throw new Error(detail || `Transcription failed (${response.status})`);
       }
-      return (await response.json()) as { transcript: string };
+      const data = (await response.json()) as {
+        transcript: string;
+        speaker?: "therapist" | "patient";
+        speakerConfidence?: number;
+        atSeconds?: number;
+        endSeconds?: number;
+      };
+      return {
+        transcript: data.transcript,
+        speaker: data.speaker ?? "patient",
+        speakerConfidence: data.speakerConfidence ?? 0.5,
+        atSeconds: data.atSeconds ?? 0,
+        endSeconds: data.endSeconds,
+      };
     } catch (e) {
       console.error("transcribeAudio failed:", e);
       throw e instanceof Error ? e : new Error("Transcription failed");
