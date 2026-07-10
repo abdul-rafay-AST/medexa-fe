@@ -85,6 +85,7 @@ export interface ApiExtractedEntity {
   id: string;
   phrase: string;
   region?: string;
+  displayRegion?: string;
   cpt?: string;
   icd10?: string;
   isBillable: boolean;

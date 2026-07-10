@@ -49,7 +49,8 @@ export default function LiveSession() {
     startSessionClock,
     pauseSessionClock,
     sendChatMessage,
-    handleAmbientChunk,
+    handleAmbientTranscribed,
+    applySuggestion,
   } = live;
 
   const {
@@ -61,9 +62,9 @@ export default function LiveSession() {
     stopListening,
     transcript,
     lastChunk,
-  } = useWhisperListening(sessionId, (chunk) => {
+  } = useWhisperListening(sessionId, () => {
     if (isSimulatorMode) return;
-    handleAmbientChunk(chunk).catch(console.error);
+    handleAmbientTranscribed().catch(console.error);
   });
 
   useEffect(() => {
@@ -159,8 +160,7 @@ export default function LiveSession() {
   };
 
   const handleApplySuggestion = async (suggestionId: string) => {
-    await api.applySuggestion(sessionId, suggestionId);
-    await refreshLiveData();
+    await applySuggestion(suggestionId);
   };
 
   if (loadError) {

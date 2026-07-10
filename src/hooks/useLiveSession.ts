@@ -105,29 +105,19 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
 
   const snapBillingAnchors = useCallback((state: ApiRecordingState) => {
     const atMs = Date.now();
-    const anchors = billingAnchorsRef.current;
-    const deltaSec = Math.floor((atMs - anchors.atMs) / 1000);
-    const liveCpt = anchors.cptSeconds + deltaSec;
-    const liveBilling = anchors.billingSeconds + deltaSec;
-
     const serverCpt = state.cptElapsedSeconds ?? 0;
     const serverBilling = state.billingElapsedSeconds ?? 0;
     const serverLeft = state.timeLeft ?? 8 * 60;
-    const frozen = state.status !== "recording";
-
-    const cptSeconds = frozen ? serverCpt : Math.max(serverCpt, liveCpt);
-    const billingSeconds = frozen ? serverBilling : Math.max(serverBilling, liveBilling);
-    const timeLeftSeconds = frozen ? serverLeft : serverLeft;
 
     billingAnchorsRef.current = {
-      cptSeconds,
-      billingSeconds,
-      timeLeftSeconds,
+      cptSeconds: serverCpt,
+      billingSeconds: serverBilling,
+      timeLeftSeconds: serverLeft,
       atMs,
     };
-    setCptElapsed(cptSeconds);
-    setBillingElapsed(billingSeconds);
-    setTimeLeft(timeLeftSeconds);
+    setCptElapsed(serverCpt);
+    setBillingElapsed(serverBilling);
+    setTimeLeft(serverLeft);
   }, []);
 
   const syncSessionClockFromServer = useCallback(
@@ -285,21 +275,30 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     ]
   );
 
-  const handleAmbientChunk = useCallback(
-    async (chunk: string) => {
-      if (!chunk.trim() || loadError) return;
-      if (!isSessionRunningRef.current) {
-        await startSessionClock();
-      }
-      const startAt = getWallClockElapsed();
-      await api.analyzeTranscriptChunk(sessionId, chunk, {
-        elapsedSeconds: startAt,
-        durationSeconds: 1,
-      });
-      setHasEverStarted(true);
+  const handleAmbientTranscribed = useCallback(async () => {
+    if (loadError) return;
+    if (!isSessionRunningRef.current) {
+      await startSessionClock();
+    }
+    const elapsed = getWallClockElapsed() + 5;
+    await api.updateState(sessionId, "recording", elapsed);
+    setHasEverStarted(true);
+    await refreshLiveData();
+  }, [getWallClockElapsed, loadError, refreshLiveData, sessionId, startSessionClock]);
+
+  const applySuggestion = useCallback(
+    async (suggestionId: string) => {
+      billingAnchorsRef.current = {
+        cptSeconds: 0,
+        billingSeconds: billingAnchorsRef.current.billingSeconds,
+        timeLeftSeconds: billingAnchorsRef.current.timeLeftSeconds,
+        atMs: Date.now(),
+      };
+      setCptElapsed(0);
+      await api.applySuggestion(sessionId, suggestionId);
       await refreshLiveData();
     },
-    [getWallClockElapsed, loadError, refreshLiveData, sessionId, startSessionClock]
+    [refreshLiveData, sessionId]
   );
 
   const billingTickActive =
@@ -386,7 +385,8 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     startSessionClock,
     pauseSessionClock,
     sendChatMessage,
-    handleAmbientChunk,
+    handleAmbientTranscribed,
+    applySuggestion,
     getWallClockElapsed,
   };
 }
