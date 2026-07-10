@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiDiarizedUtterance } from "@/lib/api";
+import { isLikelyWhisperHallucination } from "@/lib/whisperHallucination";
 
 export interface UseWhisperListeningReturn {
   isListening: boolean;
@@ -19,6 +20,16 @@ export interface UseWhisperListeningReturn {
 
 const CHUNK_MS = 5000;
 const MIN_UPLOAD_BYTES = 1200;
+const MIN_PEAK_RMS = 0.008;
+const RMS_SAMPLE_MS = 250;
+
+function samplePeakRms(analyser: AnalyserNode): number {
+  const data = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(data);
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+  return Math.sqrt(sum / data.length);
+}
 
 function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
@@ -54,6 +65,10 @@ export function useWhisperListening(
   const mimeTypeRef = useRef<string>("audio/webm");
   const chunkPartsRef = useRef<Blob[]>([]);
   const rotateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const peakRmsRef = useRef(0);
+  const rmsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -70,7 +85,8 @@ export function useWhisperListening(
   }, []);
 
   const syncUtterances = useCallback((items: ApiDiarizedUtterance[]) => {
-    if (items.length) setUtterances(items);
+    const filtered = items.filter((item) => !isLikelyWhisperHallucination(item.text));
+    if (filtered.length) setUtterances(filtered);
   }, []);
 
   const stopTracks = useCallback(() => {
@@ -78,6 +94,14 @@ export function useWhisperListening(
       clearInterval(rotateTimerRef.current);
       rotateTimerRef.current = null;
     }
+    if (rmsTimerRef.current) {
+      clearInterval(rmsTimerRef.current);
+      rmsTimerRef.current = null;
+    }
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+    analyserRef.current = null;
+    peakRmsRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRecorderRef.current = null;
@@ -87,12 +111,16 @@ export function useWhisperListening(
   const uploadBlob = useCallback(
     async (blob: Blob) => {
       if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
+      if (peakRmsRef.current < MIN_PEAK_RMS) {
+        peakRmsRef.current = 0;
+        return;
+      }
       setIsTranscribing(true);
       setError(null);
       try {
         const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current);
         const text = (result?.transcript || "").trim();
-        if (text && result) {
+        if (text && result && !isLikelyWhisperHallucination(text)) {
           setLastChunk(text);
           setTranscript((prev) => {
             const spacer = prev && !prev.endsWith(" ") ? " " : "";
@@ -116,6 +144,7 @@ export function useWhisperListening(
         setError(msg);
       } finally {
         setIsTranscribing(false);
+        peakRmsRef.current = 0;
       }
     },
     [sessionId]
@@ -130,6 +159,23 @@ export function useWhisperListening(
     await uploadBlob(blob);
   }, [uploadBlob]);
 
+  const startRmsMonitor = useCallback((stream: MediaStream) => {
+    if (typeof window === "undefined" || !window.AudioContext) return;
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    audioContextRef.current = ctx;
+    analyserRef.current = analyser;
+    peakRmsRef.current = 0;
+    if (rmsTimerRef.current) clearInterval(rmsTimerRef.current);
+    rmsTimerRef.current = setInterval(() => {
+      if (!analyserRef.current) return;
+      peakRmsRef.current = Math.max(peakRmsRef.current, samplePeakRms(analyserRef.current));
+    }, RMS_SAMPLE_MS);
+  }, []);
+
   const beginRecorder = useCallback(() => {
     const stream = streamRef.current;
     if (!stream || !shouldListenRef.current) return;
@@ -141,6 +187,7 @@ export function useWhisperListening(
 
     chunkPartsRef.current = [];
     mediaRecorderRef.current = recorder;
+    peakRmsRef.current = 0;
 
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
@@ -193,6 +240,7 @@ export function useWhisperListening(
       shouldListenRef.current = true;
       setIsListening(true);
 
+      startRmsMonitor(stream);
       beginRecorder();
       rotateTimerRef.current = setInterval(rotateRecorder, CHUNK_MS);
       return true;
@@ -203,7 +251,7 @@ export function useWhisperListening(
       stopTracks();
       return false;
     }
-  }, [beginRecorder, isSupported, rotateRecorder, stopTracks]);
+  }, [beginRecorder, isSupported, rotateRecorder, startRmsMonitor, stopTracks]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
