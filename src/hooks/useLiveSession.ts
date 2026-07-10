@@ -56,6 +56,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
 
   const sessionTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const billingTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollFailuresRef = useRef(0);
   const elapsedRef = useRef(0);
   const sessionStartedAtRef = useRef<number | null>(null);
   const elapsedAtStartRef = useRef(0);
@@ -163,14 +164,18 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       ]);
 
     if (!sessionData) {
-      setLoadError(
-        sessionId === "1"
-          ? "This demo link is static. Go back and click Start a new session."
-          : "Session not found. Start a new session from the dashboard."
-      );
+      pollFailuresRef.current += 1;
+      if (pollFailuresRef.current >= 3) {
+        setLoadError(
+          sessionId === "1"
+            ? "This demo link is static. Go back and click Start a new session."
+            : "Session not found on server. The backend may have restarted — start a new session from the dashboard."
+        );
+      }
       return;
     }
 
+    pollFailuresRef.current = 0;
     setLoadError(null);
     setSession(sessionData);
 

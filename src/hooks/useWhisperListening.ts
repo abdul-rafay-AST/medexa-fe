@@ -21,7 +21,8 @@ export interface UseWhisperListeningReturn {
 
 const CHUNK_MS = 5000;
 const MIN_UPLOAD_BYTES = 1200;
-const MIN_PEAK_RMS = 0.008;
+const MIN_PEAK_RMS = 0.014;
+const MIN_PITCH_HZ = 70;
 const RMS_SAMPLE_MS = 250;
 
 function samplePeakRms(analyser: AnalyserNode): number {
@@ -126,7 +127,12 @@ export function useWhisperListening(
       if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
       if (peakRmsRef.current < MIN_PEAK_RMS) {
         peakRmsRef.current = 0;
-    chunkPitchRef.current = 0;
+        chunkPitchRef.current = 0;
+        return;
+      }
+      if (chunkPitchRef.current > 0 && chunkPitchRef.current < MIN_PITCH_HZ && peakRmsRef.current < 0.02) {
+        peakRmsRef.current = 0;
+        chunkPitchRef.current = 0;
         return;
       }
       setIsTranscribing(true);
