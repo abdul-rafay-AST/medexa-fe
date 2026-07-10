@@ -76,7 +76,7 @@ export function SuggestionsPanel({
                         className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent text-sm"
                         onClick={() => onApply(live.id)}
                       >
-                        <Check className="h-4 w-4" /> Apply
+                        <Check className="h-4 w-4" /> Apply — starts CPT timer
                       </Button>
                     </div>
                   </Card>
@@ -123,7 +123,7 @@ export function SuggestionsPanel({
                           className="text-medexa-blue font-bold tracking-wide flex items-center gap-2 h-8 px-2 hover:bg-transparent text-sm"
                           onClick={() => onApply(suggestion.id)}
                         >
-                          <Check className="h-4 w-4" /> Apply
+                          <Check className="h-4 w-4" /> Apply — starts CPT timer
                         </Button>
                       </div>
                     </Card>

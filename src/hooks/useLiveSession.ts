@@ -66,6 +66,9 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
     timeLeftSeconds: 8 * 60,
     atMs: Date.now(),
   });
+  /** Simulated transcript timeline — advances per message, not wall clock. */
+  const transcriptElapsedRef = useRef(0);
+  const useTranscriptClockRef = useRef(false);
 
   useEffect(() => {
     elapsedRef.current = elapsed;
@@ -123,6 +126,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   const syncSessionClockFromServer = useCallback(
     (state: ApiRecordingState) => {
       const serverElapsed = state.elapsedSeconds ?? 0;
+      transcriptElapsedRef.current = Math.max(transcriptElapsedRef.current, serverElapsed);
       if (state.status === "recording") {
         setIsSessionRunning(true);
         if (sessionStartedAtRef.current === null) {
@@ -228,14 +232,15 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         await startSessionClock();
       }
 
-      const startAt = getWallClockElapsed();
-      const durationSeconds = Math.max(5, Math.min(30, Math.ceil(body.split(/\s+/).length * 1.5)));
+      useTranscriptClockRef.current = true;
+      const startAt = transcriptElapsedRef.current;
+      const durationSeconds = Math.max(8, Math.min(30, Math.ceil(body.split(/\s+/).length * 1.5)));
+      const endAt = startAt + durationSeconds;
       const labeled = `${speaker === "therapist" ? "Therapist" : "Patient"}: ${body}`;
 
       setSending(true);
       setLastChunkError(null);
       try {
-        await api.updateState(sessionId, "recording", startAt);
         const analysis = await api.analyzeTranscriptChunk(sessionId, labeled, {
           elapsedSeconds: startAt,
           durationSeconds,
@@ -244,6 +249,13 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
           setLastChunkError("Message failed. Please check network connection or backend logs.");
           return false;
         }
+
+        transcriptElapsedRef.current = endAt;
+        elapsedAtStartRef.current = endAt;
+        sessionStartedAtRef.current = null;
+        setElapsed(endAt);
+        elapsedRef.current = endAt;
+        await api.updateState(sessionId, "recording", endAt);
 
         setChatMessages((prev) => [
           ...prev,
@@ -266,7 +278,6 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       }
     },
     [
-      getWallClockElapsed,
       isSessionRunning,
       loadError,
       refreshLiveData,
@@ -313,7 +324,7 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
   }, [refreshLiveData, pollMs]);
 
   useEffect(() => {
-    if (!isSessionRunning || disableTick) {
+    if (!isSessionRunning || disableTick || useTranscriptClockRef.current) {
       if (sessionTickRef.current) {
         clearInterval(sessionTickRef.current);
         sessionTickRef.current = null;

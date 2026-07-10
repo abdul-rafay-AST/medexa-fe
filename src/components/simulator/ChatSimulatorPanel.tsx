@@ -1,37 +1,43 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Loader2, Send, UserRound, Stethoscope } from "lucide-react";
+import { Loader2, Send, UserRound, Stethoscope, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { formatElapsed } from "@/lib/api";
 import type { ChatMessage, ChatSpeaker } from "@/hooks/useLiveSession";
 
-const DEMO_EXCHANGE: Array<{ speaker: ChatSpeaker; text: string }> = [
+/** Critical path test script — send in order with Start pressed first. */
+export const PATH_TEST_SCRIPT: Array<{
+  speaker: ChatSpeaker;
+  text: string;
+  expect: string;
+}> = [
   {
     speaker: "patient",
-    text: "My lower back has been hurting for two weeks. Pain is about 6 out of 10 today.",
+    text: "My lower back hurts when I bend. Pain is 6 out of 10 for two weeks.",
+    expect: "Path A: lumbar region entity. Path B may trigger (clinical keywords).",
   },
   {
     speaker: "therapist",
-    text: "Understood. Let's start therapeutic exercise for lumbar stretching and core strengthening.",
+    text: "Starting therapeutic exercise for lumbar stretching and core strengthening.",
+    expect: "Path A: CPT 97110 suggestion → click Apply to START billing timer.",
   },
   {
     speaker: "therapist",
-    text: "We'll continue therapeutic exercise with a resistance band for about ten minutes.",
-  },
-  {
-    speaker: "patient",
-    text: "Balance feels off when I turn quickly.",
+    text: "Continuing therapeutic exercise with resistance band for ten minutes.",
+    expect: "Path A: no duplicate 97110 suggestion. CPT timer keeps running.",
   },
   {
     speaker: "therapist",
-    text: "Next is neuromuscular re-education for balance and gait training.",
+    text: "Now manual therapy soft tissue mobilization on the lumbar spine.",
+    expect: "Path A: CPT 97140 suggestion. NCCI conflict vs 97110 → insights banner.",
   },
   {
     speaker: "therapist",
-    text: "I'll finish with manual therapy soft tissue mobilization on the lumbar spine.",
+    text: "Neuromuscular re-education for balance and gait training.",
+    expect: "Path A: CPT 97112 suggestion while prior units stay recorded.",
   },
 ];
 
@@ -49,8 +55,9 @@ export function ChatSimulatorPanel({
   onSendChat,
 }: ChatSimulatorPanelProps) {
   const [text, setText] = useState("");
-  const [speaker, setSpeaker] = useState<ChatSpeaker>("therapist");
-  const [demoIndex, setDemoIndex] = useState(0);
+  const [speaker, setSpeaker] = useState<ChatSpeaker>("patient");
+  const [scriptIndex, setScriptIndex] = useState(0);
+  const [showGuide, setShowGuide] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,9 +74,9 @@ export function ChatSimulatorPanel({
     }
   };
 
-  const insertDemo = () => {
-    const line = DEMO_EXCHANGE[demoIndex % DEMO_EXCHANGE.length];
-    setDemoIndex((i) => i + 1);
+  const insertNextScriptLine = () => {
+    const line = PATH_TEST_SCRIPT[scriptIndex % PATH_TEST_SCRIPT.length];
+    setScriptIndex((i) => i + 1);
     setSpeaker(line.speaker);
     setText(line.text);
   };
@@ -82,19 +89,56 @@ export function ChatSimulatorPanel({
             Chat Simulator
           </h2>
           <p className="text-xs text-medexa-gray-500 mt-1">
-            Test Path A/B/C pipelines by simulating a clinical conversation.
+            Apply starts the CPT timer. Insights timeline is alerts only — no slide-to-approve.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-full h-8 text-xs font-semibold border-medexa-blue/20 text-medexa-blue hover:bg-medexa-blue/10"
-          onClick={insertDemo}
-        >
-          Insert Demo Line
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full h-8 text-xs font-semibold border-medexa-blue/20 text-medexa-blue hover:bg-medexa-blue/10"
+            onClick={() => setShowGuide((v) => !v)}
+          >
+            <BookOpen className="h-3.5 w-3.5 mr-1" />
+            {showGuide ? "Hide" : "Show"} guide
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full h-8 text-xs font-semibold border-medexa-blue/20 text-medexa-blue hover:bg-medexa-blue/10"
+            onClick={insertNextScriptLine}
+          >
+            Next test line ({scriptIndex + 1}/{PATH_TEST_SCRIPT.length})
+          </Button>
+        </div>
       </div>
+
+      {showGuide && (
+        <div className="rounded-2xl bg-white border border-medexa-gray-100 p-3 text-xs text-medexa-gray-600 space-y-2">
+          <p className="font-bold text-medexa-gray-900">How paths work</p>
+          <ul className="list-disc pl-4 space-y-1">
+            <li>
+              <strong>Path A</strong> — every message: entities, CPT suggestions (Billing tab), NCCI alerts.
+            </li>
+            <li>
+              <strong>Apply</strong> — starts / switches the active CPT timer; previous CPT time is saved toward units.
+            </li>
+            <li>
+              <strong>Path B</strong> — clinical assistant cards (Clinical tab) after triggers like new activity or gaps.
+            </li>
+            <li>
+              <strong>Path C</strong> — press Stop → SOAP notes &amp; claim review.
+            </li>
+          </ul>
+          {PATH_TEST_SCRIPT.map((step, i) => (
+            <p key={i} className={i === scriptIndex ? "text-medexa-blue font-semibold" : ""}>
+              {i + 1}. [{step.speaker}] {step.expect}
+            </p>
+          ))}
+        </div>
+      )}
 
       <div
         ref={scrollRef}
@@ -102,12 +146,9 @@ export function ChatSimulatorPanel({
       >
         {chatMessages.length === 0 ? (
           <div className="text-center py-8 px-4">
-            <p className="text-sm font-semibold text-medexa-gray-900 mb-1">
-              Simulator Ready
-            </p>
+            <p className="text-sm font-semibold text-medexa-gray-900 mb-1">Simulator ready</p>
             <p className="text-xs text-medexa-gray-500">
-              Press Start below, then send messages as Patient / Therapist.
-              <br />Path A rules update live; Path B triggers intelligently.
+              Press Start, then use &quot;Next test line&quot; or type messages. Timestamps follow transcript order.
             </p>
           </div>
         ) : (
@@ -134,7 +175,7 @@ export function ChatSimulatorPanel({
                     <span className="text-[10px] font-bold uppercase tracking-wide">
                       {isTherapist ? "Therapist" : "Patient"}
                     </span>
-                    <span className="text-[10px] ml-auto font-medium">
+                    <span className="text-[10px] ml-auto font-medium tabular-nums">
                       {formatElapsed(msg.atSeconds)}
                     </span>
                   </div>
