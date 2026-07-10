@@ -30,7 +30,7 @@ export function TranscriptComposer({
 
       <p className="text-xs text-medexa-gray-500">
         {speechSupported
-          ? "Live transcript with patient / therapist labels (Deepgram + voice clustering)."
+          ? "Live transcript — each natural speech pause is transcribed and diarized (Deepgram + voice)."
           : "Microphone not supported in this browser."}
       </p>
 

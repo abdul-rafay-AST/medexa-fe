@@ -19,11 +19,14 @@ export interface UseWhisperListeningReturn {
   syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
-const CHUNK_MS = 5000;
 const MIN_UPLOAD_BYTES = 1200;
 const MIN_PEAK_RMS = 0.014;
 const MIN_PITCH_HZ = 70;
-const RMS_SAMPLE_MS = 250;
+const SPEECH_RMS = 0.012;
+const SILENCE_END_MS = 850;
+const MIN_SPEECH_MS = 300;
+const MAX_UTTERANCE_MS = 60000;
+const VAD_TICK_MS = 80;
 
 function samplePeakRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
@@ -46,7 +49,8 @@ function pickMimeType(): string | undefined {
 }
 
 /**
- * Ambient listening via MediaRecorder → backend Deepgram STT + voice/Deepgram diarization.
+ * Ambient listening: speech-boundary utterances → Deepgram STT + voice diarization.
+ * Uploads each natural pause (no fixed time window).
  */
 export function useWhisperListening(
   sessionId: string,
@@ -66,12 +70,16 @@ export function useWhisperListening(
   const onChunkRef = useRef(onChunkFinalized);
   const mimeTypeRef = useRef<string>("audio/webm");
   const chunkPartsRef = useRef<Blob[]>([]);
-  const rotateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const peakRmsRef = useRef(0);
   const chunkPitchRef = useRef(0);
-  const rmsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingUtteranceRef = useRef(false);
+  const speechMsRef = useRef(0);
+  const silenceMsRef = useRef(0);
+  const utteranceStartedAtRef = useRef(0);
+  const lastUtteranceDurationSecRef = useRef(0);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -103,19 +111,18 @@ export function useWhisperListening(
   }, []);
 
   const stopTracks = useCallback(() => {
-    if (rotateTimerRef.current) {
-      clearInterval(rotateTimerRef.current);
-      rotateTimerRef.current = null;
-    }
-    if (rmsTimerRef.current) {
-      clearInterval(rmsTimerRef.current);
-      rmsTimerRef.current = null;
+    if (vadTimerRef.current) {
+      clearInterval(vadTimerRef.current);
+      vadTimerRef.current = null;
     }
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     analyserRef.current = null;
     peakRmsRef.current = 0;
     chunkPitchRef.current = 0;
+    isRecordingUtteranceRef.current = false;
+    speechMsRef.current = 0;
+    silenceMsRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRecorderRef.current = null;
@@ -137,9 +144,19 @@ export function useWhisperListening(
       }
       setIsTranscribing(true);
       setError(null);
+      const durationSec = Math.max(
+        0.3,
+        lastUtteranceDurationSecRef.current || durationSecFromBlob(blob)
+      );
       try {
         const pitchHz = chunkPitchRef.current > 0 ? chunkPitchRef.current : undefined;
-        const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current, pitchHz);
+        const result = await api.transcribeAudio(
+          sessionId,
+          blob,
+          mimeTypeRef.current,
+          pitchHz,
+          durationSec
+        );
         const text = (result?.transcript || "").trim();
         if (text && result && !isLikelyWhisperHallucination(text)) {
           setLastChunk(text);
@@ -147,6 +164,9 @@ export function useWhisperListening(
             const spacer = prev && !prev.endsWith(" ") ? " " : "";
             return prev + spacer + text + " ";
           });
+          const endSeconds =
+            result.endSeconds ??
+            result.atSeconds + Math.max(1, Math.ceil(durationSec));
           const segmentUtterances =
             result.audioSegments?.filter((segment) => segment.text.trim()) ?? [];
           const items =
@@ -166,7 +186,7 @@ export function useWhisperListening(
                     speaker: result.speaker,
                     text,
                     atSeconds: result.atSeconds,
-                    endSeconds: result.endSeconds ?? result.atSeconds + 5,
+                    endSeconds,
                     confidence: result.speakerConfidence,
                     diarizationMethod: result.diarizationMethod,
                   },
@@ -175,12 +195,13 @@ export function useWhisperListening(
           onChunkRef.current?.(text);
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Whisper transcription failed";
+        const msg = e instanceof Error ? e.message : "Transcription failed";
         setError(msg);
       } finally {
         setIsTranscribing(false);
         peakRmsRef.current = 0;
-    chunkPitchRef.current = 0;
+        chunkPitchRef.current = 0;
+        lastUtteranceDurationSecRef.current = 0;
       }
     },
     [sessionId]
@@ -195,29 +216,19 @@ export function useWhisperListening(
     await uploadBlob(blob);
   }, [uploadBlob]);
 
-  const startRmsMonitor = useCallback((stream: MediaStream) => {
-    if (typeof window === "undefined" || !window.AudioContext) return;
-    const ctx = new AudioContext();
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
-    audioContextRef.current = ctx;
-    analyserRef.current = analyser;
-    peakRmsRef.current = 0;
-    chunkPitchRef.current = 0;
-    if (rmsTimerRef.current) clearInterval(rmsTimerRef.current);
-    rmsTimerRef.current = setInterval(() => {
-      if (!analyserRef.current || !audioContextRef.current) return;
-      peakRmsRef.current = Math.max(peakRmsRef.current, samplePeakRms(analyserRef.current));
-      const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
-      if (pitch > 0) chunkPitchRef.current = pitch;
-    }, RMS_SAMPLE_MS);
+  const stopUtteranceRecorder = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  const beginRecorder = useCallback(() => {
+  const beginUtteranceRecorder = useCallback(() => {
     const stream = streamRef.current;
-    if (!stream || !shouldListenRef.current) return;
+    if (!stream || !shouldListenRef.current || isRecordingUtteranceRef.current) return;
 
     const mimeType = mimeTypeRef.current;
     const recorder = mimeType
@@ -228,6 +239,8 @@ export function useWhisperListening(
     mediaRecorderRef.current = recorder;
     peakRmsRef.current = 0;
     chunkPitchRef.current = 0;
+    isRecordingUtteranceRef.current = true;
+    utteranceStartedAtRef.current = Date.now();
 
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
@@ -241,25 +254,73 @@ export function useWhisperListening(
       stopTracks();
     };
     recorder.onstop = () => {
-      void finalizeAndUpload().then(() => {
-        if (shouldListenRef.current && streamRef.current) {
-          beginRecorder();
-        }
-      });
+      isRecordingUtteranceRef.current = false;
+      speechMsRef.current = 0;
+      silenceMsRef.current = 0;
+      mediaRecorderRef.current = null;
+      void finalizeAndUpload();
     };
 
     recorder.start();
   }, [finalizeAndUpload, stopTracks]);
 
-  const rotateRecorder = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
-    if (!recorder || recorder.state !== "recording") return;
-    try {
-      recorder.stop();
-    } catch {
-      /* ignore */
+  const finalizeUtterance = useCallback(() => {
+    if (!isRecordingUtteranceRef.current) return;
+    lastUtteranceDurationSecRef.current = Math.max(
+      0.3,
+      (Date.now() - utteranceStartedAtRef.current) / 1000
+    );
+    stopUtteranceRecorder();
+  }, [stopUtteranceRecorder]);
+
+  const runVoiceActivityDetection = useCallback(() => {
+    if (!analyserRef.current || !audioContextRef.current || !shouldListenRef.current) return;
+
+    const rms = samplePeakRms(analyserRef.current);
+    if (isRecordingUtteranceRef.current) {
+      peakRmsRef.current = Math.max(peakRmsRef.current, rms);
+      const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
+      if (pitch > 0) chunkPitchRef.current = pitch;
     }
-  }, []);
+
+    const speaking = rms >= SPEECH_RMS;
+
+    if (speaking) {
+      silenceMsRef.current = 0;
+      if (!isRecordingUtteranceRef.current) {
+        speechMsRef.current = 0;
+        beginUtteranceRecorder();
+      }
+      speechMsRef.current += VAD_TICK_MS;
+      if (speechMsRef.current >= MAX_UTTERANCE_MS) {
+        finalizeUtterance();
+      }
+      return;
+    }
+
+    if (!isRecordingUtteranceRef.current) return;
+
+    silenceMsRef.current += VAD_TICK_MS;
+    if (silenceMsRef.current >= SILENCE_END_MS && speechMsRef.current >= MIN_SPEECH_MS) {
+      finalizeUtterance();
+    }
+  }, [beginUtteranceRecorder, finalizeUtterance]);
+
+  const startVadMonitor = useCallback(
+    (stream: MediaStream) => {
+      if (typeof window === "undefined" || !window.AudioContext) return;
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      audioContextRef.current = ctx;
+      analyserRef.current = analyser;
+      if (vadTimerRef.current) clearInterval(vadTimerRef.current);
+      vadTimerRef.current = setInterval(runVoiceActivityDetection, VAD_TICK_MS);
+    },
+    [runVoiceActivityDetection]
+  );
 
   const startListening = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
@@ -280,10 +341,7 @@ export function useWhisperListening(
       streamRef.current = stream;
       shouldListenRef.current = true;
       setIsListening(true);
-
-      startRmsMonitor(stream);
-      beginRecorder();
-      rotateTimerRef.current = setInterval(rotateRecorder, CHUNK_MS);
+      startVadMonitor(stream);
       return true;
     } catch {
       shouldListenRef.current = false;
@@ -292,26 +350,17 @@ export function useWhisperListening(
       stopTracks();
       return false;
     }
-  }, [beginRecorder, isSupported, rotateRecorder, startRmsMonitor, stopTracks]);
+  }, [isSupported, startVadMonitor, stopTracks]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
-    if (rotateTimerRef.current) {
-      clearInterval(rotateTimerRef.current);
-      rotateTimerRef.current = null;
-    }
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      try {
-        recorder.stop();
-      } catch {
-        /* ignore */
-      }
+    if (isRecordingUtteranceRef.current) {
+      finalizeUtterance();
     } else {
       stopTracks();
     }
     setIsListening(false);
-  }, [stopTracks]);
+  }, [finalizeUtterance, stopTracks]);
 
   const resetTranscript = useCallback(() => {
     setTranscript("");
@@ -339,4 +388,9 @@ export function useWhisperListening(
     resetTranscript,
     syncUtterances,
   };
+}
+
+function durationSecFromBlob(blob: Blob): number {
+  // Opus/webm ~16–24 kbps for speech; duration hint only when wall-clock is missing.
+  return Math.max(0.5, blob.size / 3200);
 }
