@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Loader2, Pause, Play, Square } from "lucide-react";
@@ -23,6 +23,7 @@ export default function LiveSession() {
   const isSimulatorMode = searchParams.get("simulator") === "true";
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "assistant">("insights");
+  const ambientBootstrappedRef = useRef(false);
 
   const live = useLiveSession({ sessionId });
   const {
@@ -75,6 +76,36 @@ export default function LiveSession() {
     if (isSimulatorMode && isListening) stopListening();
   }, [isSimulatorMode, isListening, stopListening]);
 
+  const startAmbientSession = useCallback(async () => {
+    setHasEverStarted(true);
+    if (!isSessionRunning) {
+      await startSessionClock();
+    }
+    await startListening();
+    await refreshLiveData();
+  }, [isSessionRunning, refreshLiveData, setHasEverStarted, startListening, startSessionClock]);
+
+  /** Ambient mode: begin mic + session clock as soon as the page loads (not after Resume). */
+  useEffect(() => {
+    if (isSimulatorMode || loadError || !session || !recordingState) return;
+    if (ambientBootstrappedRef.current || isListening) return;
+    if (!isSupported) return;
+    if (recordingState.status === "paused" || recordingState.status === "stopped") return;
+
+    ambientBootstrappedRef.current = true;
+    void startAmbientSession().catch(() => {
+      ambientBootstrappedRef.current = false;
+    });
+  }, [
+    isSimulatorMode,
+    loadError,
+    session,
+    recordingState,
+    isListening,
+    isSupported,
+    startAmbientSession,
+  ]);
+
   const units = recordingState?.units ?? pipeline?.pathA.units ?? 0;
   const totalBillingElapsed = billingElapsed;
   const activeCptSeconds = cptElapsed;
@@ -96,12 +127,12 @@ export default function LiveSession() {
       ? isListening || isTranscribing
       : isSessionRunning || chatMessages.length > 0 || sending;
 
-  /** Bottom-bar primary control: Start → Pause → Resume */
+  /** Bottom-bar primary control: Pause while listening, Resume only after explicit pause. */
   const primaryLabel =
     !isSimulatorMode
       ? isListening
         ? "Pause"
-        : hasEverStarted
+        : recordingState?.status === "paused"
           ? "Resume"
           : "Start"
       : isSessionRunning
@@ -131,9 +162,7 @@ export default function LiveSession() {
     }
 
     setHasEverStarted(true);
-    await startSessionClock();
-    await startListening();
-    await refreshLiveData();
+    await startAmbientSession();
   };
 
   const handleStop = async () => {
