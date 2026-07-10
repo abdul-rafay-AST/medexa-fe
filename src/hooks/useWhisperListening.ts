@@ -135,6 +135,7 @@ export function useWhisperListening(
               atSeconds: result.atSeconds,
               endSeconds: result.endSeconds ?? result.atSeconds + 5,
               confidence: result.speakerConfidence,
+              diarizationMethod: result.diarizationMethod,
             },
           ]);
           onChunkRef.current?.(text);

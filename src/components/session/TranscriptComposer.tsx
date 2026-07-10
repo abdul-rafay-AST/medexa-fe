@@ -24,13 +24,13 @@ export function TranscriptComposer({
           Ambient listening
         </div>
         <p className="text-[10px] text-medexa-gray-400 font-medium">
-          Speaker roles detected automatically
+          Voice + clinical context diarization
         </p>
       </div>
 
       <p className="text-xs text-medexa-gray-500">
         {speechSupported
-          ? "Live transcript with patient / therapist labels (~5s clips → Path A)."
+          ? "Live transcript with patient / therapist labels from voice fingerprinting (~5s clips → Path A)."
           : "Microphone not supported in this browser."}
       </p>
 
@@ -63,6 +63,11 @@ export function TranscriptComposer({
                     <span className="text-[10px] font-bold uppercase tracking-wide">
                       {isTherapist ? "Therapist" : "Patient"}
                     </span>
+                    {msg.diarizationMethod && msg.diarizationMethod !== "text" && (
+                      <span className="text-[9px] uppercase tracking-wide opacity-70">
+                        {msg.diarizationMethod === "voice" ? "Voice" : "Voice+text"}
+                      </span>
+                    )}
                     <span className="text-[10px] ml-auto tabular-nums">
                       {formatElapsed(msg.atSeconds)}
                     </span>

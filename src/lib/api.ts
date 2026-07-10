@@ -88,12 +88,14 @@ export interface ApiDiarizedUtterance {
   atSeconds: number;
   endSeconds?: number;
   confidence: number;
+  diarizationMethod?: "voice" | "text" | "hybrid";
 }
 
 export interface ApiTranscribeAudioResult {
   transcript: string;
   speaker: "therapist" | "patient";
   speakerConfidence: number;
+  diarizationMethod?: "voice" | "text" | "hybrid";
   atSeconds: number;
   endSeconds?: number;
 }
@@ -278,6 +280,7 @@ class ApiClient {
         transcript: string;
         speaker?: "therapist" | "patient";
         speakerConfidence?: number;
+        diarizationMethod?: "voice" | "text" | "hybrid";
         atSeconds?: number;
         endSeconds?: number;
       };
@@ -285,6 +288,7 @@ class ApiClient {
         transcript: data.transcript,
         speaker: data.speaker ?? "patient",
         speakerConfidence: data.speakerConfidence ?? 0.5,
+        diarizationMethod: data.diarizationMethod,
         atSeconds: data.atSeconds ?? 0,
         endSeconds: data.endSeconds,
       };
