@@ -8,6 +8,7 @@ import { Search, Mic, ArrowUpRight, ChevronRight, ChevronLeft, Loader2, MessageS
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, StartSessionRequest } from "@/lib/api";
+import { AMBIENT_AUTOSTART_KEY, primeMicrophoneAccess } from "@/lib/micPermission";
 
 const SAMUEL_PATIENT: StartSessionRequest = {
   patientName: "Samuel Thompson",
@@ -30,8 +31,10 @@ export default function Dashboard() {
     try {
       setIsStarting(true);
       setStartError(null);
+      await primeMicrophoneAccess();
       const res = await api.startSession(patient);
       if (res?.session?.id) {
+        sessionStorage.setItem(AMBIENT_AUTOSTART_KEY, "1");
         router.push(`/session/${res.session.id}`);
       } else {
         setStartError("Could not start session. The backend may be starting up — please try again in a moment.");

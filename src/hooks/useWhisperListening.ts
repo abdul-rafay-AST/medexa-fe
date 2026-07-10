@@ -10,7 +10,7 @@ export interface UseWhisperListeningReturn {
   error: string | null;
   transcript: string;
   lastChunk: string;
-  startListening: () => Promise<void>;
+  startListening: () => Promise<boolean>;
   stopListening: () => void;
   resetTranscript: () => void;
 }
@@ -158,12 +158,12 @@ export function useWhisperListening(
     }
   }, []);
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
       setError("Microphone recording is not supported in this browser.");
-      return;
+      return false;
     }
-    if (shouldListenRef.current) return;
+    if (shouldListenRef.current) return true;
 
     setError(null);
     try {
@@ -179,11 +179,13 @@ export function useWhisperListening(
 
       beginRecorder();
       rotateTimerRef.current = setInterval(rotateRecorder, CHUNK_MS);
+      return true;
     } catch {
       shouldListenRef.current = false;
       setIsListening(false);
       setError("Microphone access denied or unavailable.");
       stopTracks();
+      return false;
     }
   }, [beginRecorder, isSupported, rotateRecorder, stopTracks]);
 

@@ -15,6 +15,7 @@ import { ChatSimulatorPanel } from "@/components/simulator/ChatSimulatorPanel";
 import { useLiveSession } from "@/hooks/useLiveSession";
 import { useWhisperListening } from "@/hooks/useWhisperListening";
 import { api, formatElapsed } from "@/lib/api";
+import { AMBIENT_AUTOSTART_KEY } from "@/lib/micPermission";
 
 export default function LiveSession() {
   const params = useParams();
@@ -23,7 +24,10 @@ export default function LiveSession() {
   const isSimulatorMode = searchParams.get("simulator") === "true";
   const sessionId = params.id as string;
   const [mobilePanel, setMobilePanel] = useState<"insights" | "assistant">("insights");
-  const ambientBootstrappedRef = useRef(false);
+  const [ambientPausedByUser, setAmbientPausedByUser] = useState(false);
+  const [isBootstrappingMic, setIsBootstrappingMic] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const micStartInFlightRef = useRef(false);
 
   const live = useLiveSession({ sessionId });
   const {
@@ -70,39 +74,54 @@ export default function LiveSession() {
 
   useEffect(() => {
     return () => stopListening();
-  }, [stopListening]);
+    // Only tear down mic when leaving this session route.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   useEffect(() => {
     if (isSimulatorMode && isListening) stopListening();
   }, [isSimulatorMode, isListening, stopListening]);
 
-  const startAmbientSession = useCallback(async () => {
+  const startAmbientSession = useCallback(async (): Promise<boolean> => {
     setHasEverStarted(true);
+    setAmbientPausedByUser(false);
+    setMicBlocked(false);
     if (!isSessionRunning) {
       await startSessionClock();
     }
-    await startListening();
-    await refreshLiveData();
+    const ok = await startListening();
+    if (ok) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(AMBIENT_AUTOSTART_KEY);
+      }
+      await refreshLiveData();
+    } else {
+      setMicBlocked(true);
+    }
+    return ok;
   }, [isSessionRunning, refreshLiveData, setHasEverStarted, startListening, startSessionClock]);
 
-  /** Ambient mode: begin mic + session clock as soon as the page loads (not after Resume). */
+  /** Ambient: start mic as soon as the session page is ready. */
   useEffect(() => {
-    if (isSimulatorMode || loadError || !session || !recordingState) return;
-    if (ambientBootstrappedRef.current || isListening) return;
-    if (!isSupported) return;
-    if (recordingState.status === "paused" || recordingState.status === "stopped") return;
+    if (isSimulatorMode || loadError || !session || !isSupported) return;
+    if (isListening || ambientPausedByUser || micBlocked) return;
+    if (micStartInFlightRef.current) return;
 
-    ambientBootstrappedRef.current = true;
-    void startAmbientSession().catch(() => {
-      ambientBootstrappedRef.current = false;
+    micStartInFlightRef.current = true;
+    setIsBootstrappingMic(true);
+
+    void startAmbientSession().finally(() => {
+      micStartInFlightRef.current = false;
+      setIsBootstrappingMic(false);
     });
   }, [
     isSimulatorMode,
     loadError,
     session,
-    recordingState,
-    isListening,
     isSupported,
+    isListening,
+    ambientPausedByUser,
+    micBlocked,
     startAmbientSession,
   ]);
 
@@ -124,24 +143,25 @@ export default function LiveSession() {
 
   const isActive =
     !isSimulatorMode
-      ? isListening || isTranscribing
+      ? isListening || isTranscribing || isBootstrappingMic
       : isSessionRunning || chatMessages.length > 0 || sending;
 
-  /** Bottom-bar primary control: Pause while listening, Resume only after explicit pause. */
-  const primaryLabel =
-    !isSimulatorMode
-      ? isListening
-        ? "Pause"
-        : recordingState?.status === "paused"
-          ? "Resume"
-          : "Start"
-      : isSessionRunning
-        ? "Pause"
-        : hasEverStarted
-          ? "Resume"
-          : "Start";
+  /** Ambient: Pause while live; Listen only after user explicitly paused. No Resume/Start. */
+  const primaryLabel = isSimulatorMode
+    ? isSessionRunning
+      ? "Pause"
+      : hasEverStarted
+        ? "Resume"
+        : "Start"
+    : isListening
+      ? "Pause"
+      : ambientPausedByUser || micBlocked
+        ? "Listen"
+        : "Listening…";
 
-  const primaryIsPause = primaryLabel === "Pause";
+  const primaryIsPause = !isSimulatorMode && isListening;
+  const primaryDisabled =
+    !isSimulatorMode && isBootstrappingMic && !isListening && !ambientPausedByUser && !micBlocked;
 
   const handlePrimaryControl = async () => {
     if (isSimulatorMode) {
@@ -156,13 +176,16 @@ export default function LiveSession() {
     // Ambient mic mode
     if (isListening) {
       stopListening();
+      setAmbientPausedByUser(true);
       await pauseSessionClock();
       await refreshLiveData();
       return;
     }
 
-    setHasEverStarted(true);
-    await startAmbientSession();
+    setIsBootstrappingMic(true);
+    const ok = await startAmbientSession();
+    setIsBootstrappingMic(false);
+    if (!ok) setMicBlocked(true);
   };
 
   const handleStop = async () => {
@@ -334,7 +357,13 @@ export default function LiveSession() {
                   {formatElapsed(showSessionTimer ? elapsed : 0)}
                 </p>
                 <p className="text-sm text-medexa-gray-500 mt-1">
-                  {isSessionRunning ? "Session time" : hasEverStarted ? "Session paused" : "Session time"}
+                  {isListening || isBootstrappingMic
+                    ? "Listening…"
+                    : ambientPausedByUser
+                      ? "Paused"
+                      : isSessionRunning
+                        ? "Session time"
+                        : "Session time"}
                 </p>
               </div>
             </div>
@@ -420,6 +449,7 @@ export default function LiveSession() {
         <div className="bg-white rounded-full p-2 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-medexa-gray-100 flex items-center gap-1 max-w-sm w-full pointer-events-auto">
           <Button
             variant={primaryIsPause ? "ghost" : "default"}
+            disabled={primaryDisabled}
             className={`rounded-full px-3 md:px-4 h-11 font-semibold flex-1 text-sm ${
               primaryIsPause
                 ? "text-medexa-blue hover:bg-medexa-blue-light"
@@ -434,6 +464,8 @@ export default function LiveSession() {
             >
               {primaryIsPause ? (
                 <Pause className="h-3.5 w-3.5" />
+              ) : primaryDisabled ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
