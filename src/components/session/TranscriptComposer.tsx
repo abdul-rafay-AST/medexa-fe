@@ -24,7 +24,7 @@ export function TranscriptComposer({
           Ambient listening
         </div>
         <p className="text-[10px] text-medexa-gray-400 font-medium">
-          Voice + clinical context diarization
+          Voice pitch + timbre diarization
         </p>
       </div>
 

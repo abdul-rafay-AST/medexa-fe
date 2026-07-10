@@ -252,7 +252,8 @@ class ApiClient {
   async transcribeAudio(
     sessionId: string,
     blob: Blob,
-    mimeType?: string
+    mimeType?: string,
+    clientPitchHz?: number
   ): Promise<ApiTranscribeAudioResult | null> {
     try {
       const apiBase = this.getApiUrl();
@@ -262,6 +263,9 @@ class ApiClient {
         type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("wav") ? "wav" : "webm";
       const file = new File([blob], `chunk.${ext}`, { type: type || "audio/webm" });
       form.append("file", file);
+      if (clientPitchHz && clientPitchHz > 0) {
+        form.append("client_pitch_hz", String(Math.round(clientPitchHz)));
+      }
       const response = await fetch(`${apiBase}/sessions/${sessionId}/transcribe-audio`, {
         method: "POST",
         body: form,

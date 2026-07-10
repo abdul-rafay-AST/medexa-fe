@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiDiarizedUtterance } from "@/lib/api";
 import { isLikelyWhisperHallucination } from "@/lib/whisperHallucination";
+import { estimatePitchHz } from "@/lib/voicePitch";
 
 export interface UseWhisperListeningReturn {
   isListening: boolean;
@@ -68,6 +69,7 @@ export function useWhisperListening(
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const peakRmsRef = useRef(0);
+  const chunkPitchRef = useRef(0);
   const rmsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -86,7 +88,17 @@ export function useWhisperListening(
 
   const syncUtterances = useCallback((items: ApiDiarizedUtterance[]) => {
     const filtered = items.filter((item) => !isLikelyWhisperHallucination(item.text));
-    if (filtered.length) setUtterances(filtered);
+    if (!filtered.length) return;
+    setUtterances((prev) => {
+      const byKey = new Map<string, ApiDiarizedUtterance>();
+      for (const item of prev) {
+        byKey.set(`${item.atSeconds}:${item.text}`, item);
+      }
+      for (const item of filtered) {
+        byKey.set(`${item.atSeconds}:${item.text}`, item);
+      }
+      return Array.from(byKey.values()).sort((a, b) => a.atSeconds - b.atSeconds);
+    });
   }, []);
 
   const stopTracks = useCallback(() => {
@@ -102,6 +114,7 @@ export function useWhisperListening(
     audioContextRef.current = null;
     analyserRef.current = null;
     peakRmsRef.current = 0;
+    chunkPitchRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRecorderRef.current = null;
@@ -113,12 +126,14 @@ export function useWhisperListening(
       if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
       if (peakRmsRef.current < MIN_PEAK_RMS) {
         peakRmsRef.current = 0;
+    chunkPitchRef.current = 0;
         return;
       }
       setIsTranscribing(true);
       setError(null);
       try {
-        const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current);
+        const pitchHz = chunkPitchRef.current > 0 ? chunkPitchRef.current : undefined;
+        const result = await api.transcribeAudio(sessionId, blob, mimeTypeRef.current, pitchHz);
         const text = (result?.transcript || "").trim();
         if (text && result && !isLikelyWhisperHallucination(text)) {
           setLastChunk(text);
@@ -146,6 +161,7 @@ export function useWhisperListening(
       } finally {
         setIsTranscribing(false);
         peakRmsRef.current = 0;
+    chunkPitchRef.current = 0;
       }
     },
     [sessionId]
@@ -170,10 +186,13 @@ export function useWhisperListening(
     audioContextRef.current = ctx;
     analyserRef.current = analyser;
     peakRmsRef.current = 0;
+    chunkPitchRef.current = 0;
     if (rmsTimerRef.current) clearInterval(rmsTimerRef.current);
     rmsTimerRef.current = setInterval(() => {
-      if (!analyserRef.current) return;
+      if (!analyserRef.current || !audioContextRef.current) return;
       peakRmsRef.current = Math.max(peakRmsRef.current, samplePeakRms(analyserRef.current));
+      const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
+      if (pitch > 0) chunkPitchRef.current = pitch;
     }, RMS_SAMPLE_MS);
   }, []);
 
@@ -189,6 +208,7 @@ export function useWhisperListening(
     chunkPartsRef.current = [];
     mediaRecorderRef.current = recorder;
     peakRmsRef.current = 0;
+    chunkPitchRef.current = 0;
 
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
@@ -233,8 +253,9 @@ export function useWhisperListening(
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
         },
       });
       streamRef.current = stream;
