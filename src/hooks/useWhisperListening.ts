@@ -20,13 +20,15 @@ export interface UseWhisperListeningReturn {
   syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
-const MIN_UPLOAD_BYTES = 800;
-const MIN_PEAK_RMS = 0.008;
-const SPEECH_RMS = 0.008;
-const SILENCE_END_MS = 550;
-const MIN_SPEECH_MS = 400;
-const MAX_UTTERANCE_MS = 30000;
-const VAD_TICK_MS = 50;
+const MIN_UPLOAD_BYTES = 600;
+const MIN_PEAK_RMS = 0.006;
+const SPEECH_RMS = 0.006;
+const SILENCE_END_MS = 400;
+const MIN_SPEECH_MS = 300;
+/** Upload every 3s while speaking — avoids waiting 30s for MAX_UTTERANCE. */
+const ROTATE_SPEECH_MS = 3000;
+const MAX_UTTERANCE_MS = 6000;
+const VAD_TICK_MS = 40;
 const PCM_BUFFER_SIZE = 2048;
 
 function sampleRms(analyser: AnalyserNode): number {
@@ -49,8 +51,8 @@ function mergePcmChunks(chunks: Float32Array[]): Float32Array {
 }
 
 /**
- * Ambient listening — capture PCM via Web Audio and upload WAV utterances.
- * Avoids corrupt WebM blobs that Deepgram rejects with HTTP 400.
+ * Ambient listening — rolling 3s WAV uploads while speaking.
+ * Previously MAX_UTTERANCE_MS=30000 caused ~30s delay before first transcript.
  */
 export function useWhisperListening(
   sessionId: string,
@@ -80,6 +82,7 @@ export function useWhisperListening(
   const silenceMsRef = useRef(0);
   const utteranceStartedAtRef = useRef(0);
   const lastUtteranceDurationSecRef = useRef(0);
+  const uploadsInFlightRef = useRef(0);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -133,18 +136,19 @@ export function useWhisperListening(
     async (blob: Blob) => {
       if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
       if (peakRmsRef.current < MIN_PEAK_RMS) {
-        peakRmsRef.current = 0;
-        chunkPitchRef.current = 0;
         return;
       }
+      uploadsInFlightRef.current += 1;
       setIsTranscribing(true);
       setError(null);
+      const capturedPeak = peakRmsRef.current;
+      const capturedPitch = chunkPitchRef.current;
       const durationSec = Math.max(
         0.25,
         lastUtteranceDurationSecRef.current || blob.size / 32000
       );
       try {
-        const pitchHz = chunkPitchRef.current > 0 ? chunkPitchRef.current : undefined;
+        const pitchHz = capturedPitch > 0 ? capturedPitch : undefined;
         const result = await api.transcribeAudio(
           sessionId,
           blob,
@@ -194,41 +198,70 @@ export function useWhisperListening(
         const msg = e instanceof Error ? e.message : "Transcription failed";
         setError(msg);
       } finally {
-        setIsTranscribing(false);
-        peakRmsRef.current = 0;
-        chunkPitchRef.current = 0;
-        lastUtteranceDurationSecRef.current = 0;
+        uploadsInFlightRef.current = Math.max(0, uploadsInFlightRef.current - 1);
+        if (uploadsInFlightRef.current === 0) {
+          setIsTranscribing(false);
+        }
       }
     },
     [sessionId]
   );
 
-  const finalizeUtterance = useCallback(() => {
-    if (!utteranceActiveRef.current) return;
-    utteranceActiveRef.current = false;
-    speechMsRef.current = 0;
-    silenceMsRef.current = 0;
-    lastUtteranceDurationSecRef.current = Math.max(
-      0.25,
-      (Date.now() - utteranceStartedAtRef.current) / 1000
-    );
+  const flushPcm = useCallback(
+    (endUtterance: boolean) => {
+      if (!utteranceActiveRef.current) return;
 
-    const chunks = [...pcmChunksRef.current];
-    pcmChunksRef.current = [];
-    if (!chunks.length) return;
+      const chunks = [...pcmChunksRef.current];
+      pcmChunksRef.current = [];
+      speechMsRef.current = 0;
 
-    const merged = mergePcmChunks(chunks);
-    const minSamples = Math.floor(sampleRateRef.current * 0.3);
-    if (merged.length < minSamples) return;
+      if (endUtterance) {
+        utteranceActiveRef.current = false;
+        silenceMsRef.current = 0;
+        lastUtteranceDurationSecRef.current = Math.max(
+          0.25,
+          (Date.now() - utteranceStartedAtRef.current) / 1000
+        );
+      }
 
-    if (analyserRef.current && audioContextRef.current) {
-      const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
-      if (pitch > 0) chunkPitchRef.current = pitch;
-    }
+      if (!chunks.length) {
+        if (endUtterance) {
+          peakRmsRef.current = 0;
+          chunkPitchRef.current = 0;
+        }
+        return;
+      }
 
-    const blob = encodeWav(merged, sampleRateRef.current);
-    void uploadBlob(blob);
-  }, [uploadBlob]);
+      const merged = mergePcmChunks(chunks);
+      const minSamples = Math.floor(sampleRateRef.current * 0.25);
+      if (merged.length < minSamples) {
+        if (endUtterance) {
+          peakRmsRef.current = 0;
+          chunkPitchRef.current = 0;
+        }
+        return;
+      }
+
+      if (endUtterance && analyserRef.current && audioContextRef.current) {
+        const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
+        if (pitch > 0) chunkPitchRef.current = pitch;
+      }
+
+      if (!endUtterance) {
+        lastUtteranceDurationSecRef.current = ROTATE_SPEECH_MS / 1000;
+      }
+
+      const blob = encodeWav(merged, sampleRateRef.current);
+      void uploadBlob(blob);
+
+      if (endUtterance) {
+        peakRmsRef.current = 0;
+        chunkPitchRef.current = 0;
+        lastUtteranceDurationSecRef.current = 0;
+      }
+    },
+    [uploadBlob]
+  );
 
   const runVoiceActivityDetection = useCallback(() => {
     if (!analyserRef.current || !shouldListenRef.current) return;
@@ -248,8 +281,10 @@ export function useWhisperListening(
       }
       peakRmsRef.current = Math.max(peakRmsRef.current, rms);
       speechMsRef.current += VAD_TICK_MS;
-      if (speechMsRef.current >= MAX_UTTERANCE_MS) {
-        finalizeUtterance();
+      if (speechMsRef.current >= ROTATE_SPEECH_MS) {
+        flushPcm(false);
+      } else if (speechMsRef.current >= MAX_UTTERANCE_MS) {
+        flushPcm(false);
       }
       return;
     }
@@ -257,9 +292,9 @@ export function useWhisperListening(
     if (!utteranceActiveRef.current) return;
     silenceMsRef.current += VAD_TICK_MS;
     if (silenceMsRef.current >= SILENCE_END_MS && speechMsRef.current >= MIN_SPEECH_MS) {
-      finalizeUtterance();
+      flushPcm(true);
     }
-  }, [finalizeUtterance]);
+  }, [flushPcm]);
 
   const startAudioCapture = useCallback(
     async (stream: MediaStream) => {
@@ -327,11 +362,11 @@ export function useWhisperListening(
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
     if (utteranceActiveRef.current) {
-      finalizeUtterance();
+      flushPcm(true);
     }
     stopTracks();
     setIsListening(false);
-  }, [finalizeUtterance, stopTracks]);
+  }, [flushPcm, stopTracks]);
 
   const resetTranscript = useCallback(() => {
     setTranscript("");
