@@ -19,25 +19,18 @@ export function TranscriptComposer({
 }: TranscriptComposerProps) {
   return (
     <Card className="p-4 rounded-3xl border-medexa-gray-100 bg-white shadow-sm space-y-3 flex flex-col min-h-[200px]">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
         <div className="flex items-center rounded-full h-9 px-4 text-xs font-semibold bg-medexa-blue text-white">
           Ambient listening
         </div>
-        <p className="text-[10px] text-medexa-gray-400 font-medium">
-          Deepgram STT + voice diarization
-        </p>
       </div>
-
-      <p className="text-xs text-medexa-gray-500">
-        {speechSupported
-          ? "Live transcript — each natural speech pause is transcribed and diarized (Deepgram + voice)."
-          : "Microphone not supported in this browser."}
-      </p>
 
       <div className="flex-1 max-h-72 overflow-y-auto rounded-2xl bg-medexa-gray-50/80 border border-medexa-gray-100 p-3 space-y-2">
         {utterances.length === 0 ? (
           <p className="text-sm text-medexa-gray-400 text-center py-8">
-            {ambientInterim || "Listening for speech…"}
+            {!speechSupported
+              ? "Microphone not supported in this browser."
+              : ambientInterim || "Listening for speech…"}
           </p>
         ) : (
           utterances.map((msg) => {
@@ -63,17 +56,6 @@ export function TranscriptComposer({
                     <span className="text-[10px] font-bold uppercase tracking-wide">
                       {isTherapist ? "Therapist" : "Patient"}
                     </span>
-                    {msg.diarizationMethod && (
-                      <span className="text-[9px] uppercase tracking-wide opacity-70">
-                        {msg.diarizationMethod === "deepgram"
-                          ? "Deepgram"
-                          : msg.diarizationMethod === "hybrid"
-                            ? "Deepgram+voice"
-                            : msg.diarizationMethod === "voice"
-                              ? "Voice"
-                              : "Text"}
-                      </span>
-                    )}
                     <span className="text-[10px] ml-auto tabular-nums">
                       {formatElapsed(msg.atSeconds)}
                     </span>
