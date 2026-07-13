@@ -27,6 +27,8 @@ export default function LiveSession() {
   const [ambientPausedByUser, setAmbientPausedByUser] = useState(false);
   const [isBootstrappingMic, setIsBootstrappingMic] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const micStartInFlightRef = useRef(false);
   const getElapsedRef = useRef<() => number>(() => 0);
 
@@ -203,9 +205,17 @@ export default function LiveSession() {
   };
 
   const handleStop = async () => {
+    if (isFinalizing) return;
+    setIsFinalizing(true);
+    setFinalizeError(null);
     stopListening();
     setIsSessionRunning(false);
-    await api.updateState(sessionId, "stopped", elapsed);
+    const state = await api.updateState(sessionId, "stopped", elapsed);
+    if (!state) {
+      setFinalizeError("Could not stop the session. Please retry.");
+      setIsFinalizing(false);
+      return;
+    }
 
     const chatTranscript = chatMessages
       .map(
@@ -215,16 +225,21 @@ export default function LiveSession() {
       .join("\n");
     const fullTranscript =
       chatTranscript ||
-      pipeline?.transcriptPreview ||
       transcript ||
+      pipeline?.transcriptPreview ||
       "";
     const activeCode = session?.cpt || pipeline?.pathA.activeCpt || "";
-    await api.finalizeSession(sessionId, fullTranscript, elapsed, {
+    const finalized = await api.finalizeSession(sessionId, fullTranscript, elapsed, {
       active: false,
       code: activeCode,
       seconds: elapsed,
       units: units || 1,
     });
+    if (!finalized) {
+      setFinalizeError("Path C could not generate the documentation. Your session is saved; please retry.");
+      setIsFinalizing(false);
+      return;
+    }
     router.push(`/session/${sessionId}/documentation?tab=soap`);
   };
 
@@ -424,6 +439,7 @@ export default function LiveSession() {
 
           {isSimulatorMode ? (
             <ChatSimulatorPanel
+              billingRegion={session.billingRegion}
               sending={sending}
               error={lastChunkError}
               chatMessages={chatMessages}
@@ -492,16 +508,22 @@ export default function LiveSession() {
           <div className="w-px h-8 bg-medexa-gray-200" />
           <Button
             onClick={handleStop}
+            disabled={isFinalizing}
             variant="ghost"
             className="rounded-full px-3 md:px-4 h-11 font-semibold text-medexa-gray-900 hover:bg-medexa-gray-50 flex-1 text-sm"
           >
             <div className="h-7 w-7 rounded-full bg-medexa-blue text-white flex items-center justify-center mr-2">
-              <Square className="h-3 w-3 fill-current" />
+              {isFinalizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />}
             </div>
-            Stop
+            {isFinalizing ? "Finalizing" : "Stop"}
           </Button>
         </div>
       </div>
+      {finalizeError && (
+        <div className="fixed bottom-20 left-1/2 z-50 w-[min(92vw,34rem)] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800 shadow-lg">
+          {finalizeError}
+        </div>
+      )}
     </div>
   );
 }

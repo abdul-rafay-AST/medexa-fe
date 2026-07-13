@@ -85,6 +85,7 @@ export function useWhisperListening(
   const utteranceStartedAtRef = useRef(0);
   const lastUtteranceDurationSecRef = useRef(0);
   const uploadsInFlightRef = useRef(0);
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -139,20 +140,14 @@ export function useWhisperListening(
   }, []);
 
   const uploadBlob = useCallback(
-    async (blob: Blob) => {
-      if (!blob.size || blob.size < MIN_UPLOAD_BYTES || !shouldListenRef.current) return;
-      if (peakRmsRef.current < MIN_PEAK_RMS) {
+    async (blob: Blob, capturedPeak: number, capturedPitch: number, durationSec: number) => {
+      if (!blob.size || blob.size < MIN_UPLOAD_BYTES) return;
+      if (capturedPeak < MIN_PEAK_RMS) {
         return;
       }
       uploadsInFlightRef.current += 1;
       setIsTranscribing(true);
       setError(null);
-      const capturedPeak = peakRmsRef.current;
-      const capturedPitch = chunkPitchRef.current;
-      const durationSec = Math.max(
-        0.25,
-        lastUtteranceDurationSecRef.current || blob.size / 32000
-      );
       try {
         const pitchHz = capturedPitch > 0 ? capturedPitch : undefined;
         const clientElapsed = getElapsedRef.current?.();
@@ -260,7 +255,15 @@ export function useWhisperListening(
       }
 
       const blob = encodeWav(merged, sampleRateRef.current);
-      void uploadBlob(blob);
+      const capturedPeak = peakRmsRef.current;
+      const capturedPitch = chunkPitchRef.current;
+      const durationSec = Math.max(
+        0.25,
+        lastUtteranceDurationSecRef.current || blob.size / 32000
+      );
+      uploadQueueRef.current = uploadQueueRef.current.then(() =>
+        uploadBlob(blob, capturedPeak, capturedPitch, durationSec)
+      );
 
       if (endUtterance) {
         peakRmsRef.current = 0;
@@ -368,10 +371,10 @@ export function useWhisperListening(
   }, [isSupported, startAudioCapture, stopTracks]);
 
   const stopListening = useCallback(() => {
-    shouldListenRef.current = false;
     if (utteranceActiveRef.current) {
       flushPcm(true);
     }
+    shouldListenRef.current = false;
     stopTracks();
     setIsListening(false);
   }, [flushPcm, stopTracks]);

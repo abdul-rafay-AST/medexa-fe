@@ -9,11 +9,11 @@ import { formatElapsed } from "@/lib/api";
 import type { ChatMessage, ChatSpeaker } from "@/hooks/useLiveSession";
 
 /** Critical path test script — send in order with Start pressed first. */
-export const PATH_TEST_SCRIPT: Array<{
+const PATH_TEST_SCRIPTS: Record<"US" | "SA" | "AE", Array<{
   speaker: ChatSpeaker;
   text: string;
   expect: string;
-}> = [
+}>> = { US: [
   {
     speaker: "patient",
     text: "My lower back hurts when I bend. Pain is 6 out of 10 for two weeks.",
@@ -39,13 +39,22 @@ export const PATH_TEST_SCRIPT: Array<{
     text: "Neuromuscular re-education for balance and gait training.",
     expect: "Path A: CPT 97112 suggestion while prior units stay recorded.",
   },
-];
+], SA: [
+  { speaker: "patient", text: "I have five approved physiotherapy visits and this is visit five for right knee pain.", expect: "Path A: approved-session and diagnosis context." },
+  { speaker: "therapist", text: "NPHIES pre-authorization SA-AUTH-1001 covers therapeutic exercise for right knee pain.", expect: "Path A: Saudi authorization and service-match checks." },
+  { speaker: "therapist", text: "Documenting pain score six out of ten and functional limitation on stairs.", expect: "Path B: documentation guidance; never billing authority." },
+], AE: [
+  { speaker: "patient", text: "My lower back pain is seven out of ten and limits bending at work.", expect: "Path A: diagnosis and documentation context." },
+  { speaker: "therapist", text: "DHA pre-authorization AE-AUTH-1001 is active through eClaimLink for physiotherapy.", expect: "Path A: UAE emirate routing and authorization checks." },
+  { speaker: "therapist", text: "Recording functional limitation, medical necessity, and the treatment response.", expect: "Path B assists live; Path C uses this evidence after Stop." },
+] };
 
 interface ChatSimulatorPanelProps {
   sending: boolean;
   error: string | null;
   chatMessages: ChatMessage[];
   onSendChat: (speaker: ChatSpeaker, text: string) => Promise<boolean>;
+  billingRegion?: "US" | "SA" | "AE";
 }
 
 export function ChatSimulatorPanel({
@@ -53,7 +62,9 @@ export function ChatSimulatorPanel({
   error,
   chatMessages,
   onSendChat,
+  billingRegion = "US",
 }: ChatSimulatorPanelProps) {
+  const pathTestScript = PATH_TEST_SCRIPTS[billingRegion];
   const [text, setText] = useState("");
   const [speaker, setSpeaker] = useState<ChatSpeaker>("patient");
   const [scriptIndex, setScriptIndex] = useState(0);
@@ -75,7 +86,7 @@ export function ChatSimulatorPanel({
   };
 
   const insertNextScriptLine = () => {
-    const line = PATH_TEST_SCRIPT[scriptIndex % PATH_TEST_SCRIPT.length];
+    const line = pathTestScript[scriptIndex % pathTestScript.length];
     setScriptIndex((i) => i + 1);
     setSpeaker(line.speaker);
     setText(line.text);
@@ -110,7 +121,7 @@ export function ChatSimulatorPanel({
             className="rounded-full h-8 text-xs font-semibold border-medexa-blue/20 text-medexa-blue hover:bg-medexa-blue/10"
             onClick={insertNextScriptLine}
           >
-            Next test line ({scriptIndex + 1}/{PATH_TEST_SCRIPT.length})
+            Next test line ({(scriptIndex % pathTestScript.length) + 1}/{pathTestScript.length})
           </Button>
         </div>
       </div>
@@ -132,7 +143,7 @@ export function ChatSimulatorPanel({
               <strong>Path C</strong> — press Stop → SOAP notes &amp; claim review.
             </li>
           </ul>
-          {PATH_TEST_SCRIPT.map((step, i) => (
+          {pathTestScript.map((step, i) => (
             <p key={i} className={i === scriptIndex ? "text-medexa-blue font-semibold" : ""}>
               {i + 1}. [{step.speaker}] {step.expect}
             </p>

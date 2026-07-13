@@ -4,6 +4,11 @@ export type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 
 export interface ApiSession {
   id: string;
+  billingRegion: "US" | "SA" | "AE";
+  emirate?: "DHA" | "DOH" | "MOHAP" | null;
+  payerId?: string | null;
+  memberId?: string | null;
+  preAuthReference?: string | null;
   patientName: string;
   avatar: string;
   ageSex: string;
@@ -29,6 +34,11 @@ export interface ApiRecordingState {
 }
 
 export interface StartSessionRequest {
+  billingRegion?: "US" | "SA" | "AE";
+  emirate?: "DHA" | "DOH" | "MOHAP";
+  payerId?: string;
+  memberId?: string;
+  preAuthReference?: string;
   patientName?: string;
   patientId?: string;
   therapistId?: string;

@@ -11,6 +11,7 @@ import { api, StartSessionRequest } from "@/lib/api";
 import { AMBIENT_AUTOSTART_KEY, primeMicrophoneAccess } from "@/lib/micPermission";
 
 const SAMUEL_PATIENT: StartSessionRequest = {
+  billingRegion: "US",
   patientName: "Samuel Thompson",
   avatar: "https://i.pravatar.cc/150?u=samuel",
   ageSex: "58 / Male",
@@ -22,12 +23,30 @@ const SAMUEL_PATIENT: StartSessionRequest = {
   icd: "E11.9",
 };
 
+const REGIONAL_PATIENTS: Record<"US" | "SA" | "AE", StartSessionRequest> = {
+  US: SAMUEL_PATIENT,
+  SA: {
+    billingRegion: "SA", patientName: "Amina Al-Hassan", patientId: "KSA-DEMO-001",
+    mrnNumber: "KSA-220487", payorSource: "NPHIES / CHI", careType: "Physiotherapy",
+    icd: "M25.561", payerId: "CHI-DEMO", memberId: "NPHIES-DEMO-001",
+    preAuthReference: "SA-AUTH-1001",
+  },
+  AE: {
+    billingRegion: "AE", emirate: "DHA", patientName: "Omar Al-Nuaimi",
+    patientId: "UAE-DEMO-001", mrnNumber: "AE-220488", payorSource: "DHA / eClaimLink",
+    careType: "Physiotherapy", icd: "M54.50", payerId: "DHA-DEMO",
+    memberId: "UAE-DEMO-001", preAuthReference: "AE-AUTH-1001",
+  },
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [billingRegion, setBillingRegion] = useState<"US" | "SA" | "AE">("US");
+  const selectedPatient = REGIONAL_PATIENTS[billingRegion];
 
-  const handleStartSession = async (patient: StartSessionRequest = SAMUEL_PATIENT) => {
+  const handleStartSession = async (patient: StartSessionRequest = selectedPatient) => {
     try {
       setIsStarting(true);
       setStartError(null);
@@ -80,7 +99,7 @@ export default function Dashboard() {
               if (isStarting) return;
               setIsStarting(true);
               setStartError(null);
-              api.startSession(SAMUEL_PATIENT).then((res) => {
+              api.startSession(selectedPatient).then((res) => {
                 if (res?.session?.id) {
                   router.push(`/session/${res.session.id}?simulator=true`);
                 } else {
@@ -109,6 +128,19 @@ export default function Dashboard() {
             </Card>
           </div>
         </div>
+      </section>
+
+      <section className="-mt-6 flex flex-wrap items-center gap-2" aria-label="Billing region">
+        <span className="mr-2 text-xs font-bold uppercase tracking-wide text-medexa-gray-500">Regional rule pack</span>
+        {(["US", "SA", "AE"] as const).map((region) => (
+          <Button key={region} type="button" size="sm"
+            variant={billingRegion === region ? "default" : "outline"}
+            className={`rounded-full ${billingRegion === region ? "bg-medexa-blue text-white" : "bg-white"}`}
+            onClick={() => setBillingRegion(region)}>
+            {region === "US" ? "USA" : region === "SA" ? "Saudi Arabia" : "UAE · DHA"}
+          </Button>
+        ))}
+        <span className="text-xs text-medexa-gray-500">One backend · regional rules, adapters, and outputs</span>
       </section>
 
       {startError && (
