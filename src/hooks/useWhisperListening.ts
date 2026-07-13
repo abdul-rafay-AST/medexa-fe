@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiDiarizedUtterance } from "@/lib/api";
+import { encodeWav } from "@/lib/encodeWav";
 import { isLikelyWhisperHallucination } from "@/lib/whisperHallucination";
 import { estimatePitchHz } from "@/lib/voicePitch";
 
@@ -19,15 +20,14 @@ export interface UseWhisperListeningReturn {
   syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
-const MIN_UPLOAD_BYTES = 400;
+const MIN_UPLOAD_BYTES = 1200;
 const MIN_PEAK_RMS = 0.008;
 const SPEECH_RMS = 0.008;
 const SILENCE_END_MS = 900;
-const MIN_SPEECH_MS = 300;
+const MIN_SPEECH_MS = 500;
 const MAX_UTTERANCE_MS = 45000;
 const VAD_TICK_MS = 80;
-const RECORDER_TIMESLICE_MS = 200;
-const RECORDER_STOP_DELAY_MS = 150;
+const PCM_BUFFER_SIZE = 4096;
 
 function sampleRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
@@ -37,21 +37,20 @@ function sampleRms(analyser: AnalyserNode): number {
   return Math.sqrt(sum / data.length);
 }
 
-function pickMimeType(): string | undefined {
-  if (typeof MediaRecorder === "undefined") return undefined;
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-    "audio/mp4",
-  ];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type));
+function mergePcmChunks(chunks: Float32Array[]): Float32Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
 }
 
 /**
- * Ambient listening — one MediaRecorder per speech utterance so each upload
- * includes a valid container header (fixes Deepgram 400 on corrupt WebM).
+ * Ambient listening — capture PCM via Web Audio and upload WAV utterances.
+ * Avoids corrupt WebM blobs that Deepgram rejects with HTTP 400.
  */
 export function useWhisperListening(
   sessionId: string,
@@ -66,16 +65,15 @@ export function useWhisperListening(
   const [utterances, setUtterances] = useState<ApiDiarizedUtterance[]>([]);
 
   const streamRef = useRef<MediaStream | null>(null);
-  const utteranceRecorderRef = useRef<MediaRecorder | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
-  const mimeTypeRef = useRef<string>("audio/webm");
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const utterancePartsRef = useRef<Blob[]>([]);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sampleRateRef = useRef(48000);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
   const utteranceActiveRef = useRef(false);
-  const utteranceFinalizingRef = useRef(false);
   const peakRmsRef = useRef(0);
   const chunkPitchRef = useRef(0);
   const speechMsRef = useRef(0);
@@ -92,9 +90,8 @@ export function useWhisperListening(
       typeof window !== "undefined" &&
       typeof navigator !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia &&
-      typeof MediaRecorder !== "undefined";
+      typeof window.AudioContext !== "undefined";
     setIsSupported(ok);
-    mimeTypeRef.current = pickMimeType() ?? "audio/webm";
   }, []);
 
   const syncUtterances = useCallback((items: ApiDiarizedUtterance[]) => {
@@ -112,43 +109,18 @@ export function useWhisperListening(
     });
   }, []);
 
-  const stopUtteranceRecorder = useCallback(() => {
-    const recorder = utteranceRecorderRef.current;
-    if (!recorder || recorder.state === "inactive") return;
-    try {
-      recorder.requestData();
-    } catch {
-      /* ignore */
-    }
-    window.setTimeout(() => {
-      try {
-        if (recorder.state !== "inactive") recorder.stop();
-      } catch {
-        /* ignore */
-      }
-    }, RECORDER_STOP_DELAY_MS);
-  }, []);
-
   const stopTracks = useCallback(() => {
     if (vadTimerRef.current) {
       clearInterval(vadTimerRef.current);
       vadTimerRef.current = null;
     }
-    const recorder = utteranceRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      try {
-        recorder.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-    utteranceRecorderRef.current = null;
+    processorRef.current?.disconnect();
+    processorRef.current = null;
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     analyserRef.current = null;
-    utterancePartsRef.current = [];
+    pcmChunksRef.current = [];
     utteranceActiveRef.current = false;
-    utteranceFinalizingRef.current = false;
     peakRmsRef.current = 0;
     chunkPitchRef.current = 0;
     speechMsRef.current = 0;
@@ -169,14 +141,14 @@ export function useWhisperListening(
       setError(null);
       const durationSec = Math.max(
         0.25,
-        lastUtteranceDurationSecRef.current || blob.size / 3200
+        lastUtteranceDurationSecRef.current || blob.size / 32000
       );
       try {
         const pitchHz = chunkPitchRef.current > 0 ? chunkPitchRef.current : undefined;
         const result = await api.transcribeAudio(
           sessionId,
           blob,
-          mimeTypeRef.current,
+          "audio/wav",
           pitchHz,
           durationSec
         );
@@ -231,54 +203,8 @@ export function useWhisperListening(
     [sessionId]
   );
 
-  const startUtteranceRecorder = useCallback(
-    (stream: MediaStream) => {
-      const existing = utteranceRecorderRef.current;
-      if (existing && existing.state !== "inactive") {
-        try {
-          existing.stop();
-        } catch {
-          /* ignore */
-        }
-      }
-
-      const mimeType = mimeTypeRef.current;
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      utterancePartsRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          utterancePartsRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        utteranceRecorderRef.current = null;
-        utteranceFinalizingRef.current = false;
-        if (!shouldListenRef.current) return;
-        const parts = [...utterancePartsRef.current];
-        utterancePartsRef.current = [];
-        if (!parts.length) return;
-        const blob = new Blob(parts, { type: mimeTypeRef.current });
-        void uploadBlob(blob);
-      };
-      recorder.onerror = () => {
-        setError("Recording error — try typed chunks instead.");
-        shouldListenRef.current = false;
-        setIsListening(false);
-        stopTracks();
-      };
-
-      utteranceRecorderRef.current = recorder;
-      recorder.start(RECORDER_TIMESLICE_MS);
-    },
-    [stopTracks, uploadBlob]
-  );
-
   const finalizeUtterance = useCallback(() => {
-    if (!utteranceActiveRef.current || utteranceFinalizingRef.current) return;
-    utteranceFinalizingRef.current = true;
+    if (!utteranceActiveRef.current) return;
     utteranceActiveRef.current = false;
     speechMsRef.current = 0;
     silenceMsRef.current = 0;
@@ -286,8 +212,18 @@ export function useWhisperListening(
       0.25,
       (Date.now() - utteranceStartedAtRef.current) / 1000
     );
-    stopUtteranceRecorder();
-  }, [stopUtteranceRecorder]);
+
+    const chunks = [...pcmChunksRef.current];
+    pcmChunksRef.current = [];
+    if (!chunks.length) return;
+
+    const merged = mergePcmChunks(chunks);
+    const minSamples = Math.floor(sampleRateRef.current * 0.35);
+    if (merged.length < minSamples) return;
+
+    const blob = encodeWav(merged, sampleRateRef.current);
+    void uploadBlob(blob);
+  }, [uploadBlob]);
 
   const runVoiceActivityDetection = useCallback(() => {
     if (!analyserRef.current || !shouldListenRef.current) return;
@@ -299,13 +235,11 @@ export function useWhisperListening(
       silenceMsRef.current = 0;
       if (!utteranceActiveRef.current) {
         utteranceActiveRef.current = true;
+        pcmChunksRef.current = [];
         speechMsRef.current = 0;
         peakRmsRef.current = 0;
         chunkPitchRef.current = 0;
         utteranceStartedAtRef.current = Date.now();
-        if (streamRef.current) {
-          startUtteranceRecorder(streamRef.current);
-        }
       }
       peakRmsRef.current = Math.max(peakRmsRef.current, rms);
       if (audioContextRef.current) {
@@ -324,21 +258,35 @@ export function useWhisperListening(
     if (silenceMsRef.current >= SILENCE_END_MS && speechMsRef.current >= MIN_SPEECH_MS) {
       finalizeUtterance();
     }
-  }, [finalizeUtterance, startUtteranceRecorder]);
+  }, [finalizeUtterance]);
 
-  const startVadMonitor = useCallback(
+  const startAudioCapture = useCallback(
     async (stream: MediaStream) => {
       if (typeof window === "undefined" || !window.AudioContext) return;
       const ctx = new AudioContext();
       if (ctx.state === "suspended") {
         await ctx.resume();
       }
+      sampleRateRef.current = ctx.sampleRate;
+
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
+
+      const processor = ctx.createScriptProcessor(PCM_BUFFER_SIZE, 1, 1);
+      processor.onaudioprocess = (event) => {
+        if (!utteranceActiveRef.current) return;
+        const input = event.inputBuffer.getChannelData(0);
+        pcmChunksRef.current.push(new Float32Array(input));
+      };
+      analyser.connect(processor);
+      processor.connect(ctx.destination);
+
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
+      processorRef.current = processor;
+
       if (vadTimerRef.current) clearInterval(vadTimerRef.current);
       vadTimerRef.current = setInterval(runVoiceActivityDetection, VAD_TICK_MS);
     },
@@ -364,7 +312,7 @@ export function useWhisperListening(
       streamRef.current = stream;
       shouldListenRef.current = true;
       setIsListening(true);
-      await startVadMonitor(stream);
+      await startAudioCapture(stream);
       return true;
     } catch {
       shouldListenRef.current = false;
@@ -373,7 +321,7 @@ export function useWhisperListening(
       stopTracks();
       return false;
     }
-  }, [isSupported, startVadMonitor, stopTracks]);
+  }, [isSupported, startAudioCapture, stopTracks]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
