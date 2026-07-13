@@ -28,8 +28,10 @@ export default function LiveSession() {
   const [isBootstrappingMic, setIsBootstrappingMic] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const micStartInFlightRef = useRef(false);
+  const getElapsedRef = useRef<() => number>(() => 0);
 
   const live = useLiveSession({ sessionId });
+  getElapsedRef.current = live.getWallClockElapsed;
   const {
     session,
     recordingState,
@@ -69,10 +71,14 @@ export default function LiveSession() {
     lastChunk,
     utterances,
     syncUtterances,
-  } = useWhisperListening(sessionId, () => {
-    if (isSimulatorMode) return;
-    handleAmbientTranscribed().catch(console.error);
-  });
+  } = useWhisperListening(
+    sessionId,
+    () => {
+      if (isSimulatorMode) return;
+      handleAmbientTranscribed().catch(console.error);
+    },
+    () => getElapsedRef.current()
+  );
 
   useEffect(() => {
     return () => stopListening();
@@ -208,7 +214,10 @@ export default function LiveSession() {
       )
       .join("\n");
     const fullTranscript =
-      chatTranscript || transcript || "No transcript collected.";
+      chatTranscript ||
+      pipeline?.transcriptPreview ||
+      transcript ||
+      "";
     const activeCode = session?.cpt || pipeline?.pathA.activeCpt || "";
     await api.finalizeSession(sessionId, fullTranscript, elapsed, {
       active: false,

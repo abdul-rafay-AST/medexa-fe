@@ -263,7 +263,8 @@ class ApiClient {
     blob: Blob,
     mimeType?: string,
     clientPitchHz?: number,
-    clientDurationSeconds?: number
+    clientDurationSeconds?: number,
+    clientElapsedSeconds?: number
   ): Promise<ApiTranscribeAudioResult | null> {
     try {
       const apiBase = this.getApiUrl();
@@ -278,6 +279,9 @@ class ApiClient {
       }
       if (clientDurationSeconds && clientDurationSeconds > 0) {
         form.append("client_duration_seconds", String(clientDurationSeconds));
+      }
+      if (clientElapsedSeconds !== undefined && clientElapsedSeconds >= 0) {
+        form.append("client_elapsed_seconds", String(Math.floor(clientElapsedSeconds)));
       }
       const response = await fetch(`${apiBase}/sessions/${sessionId}/transcribe-audio`, {
         method: "POST",

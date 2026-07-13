@@ -103,7 +103,11 @@ export default function Documentation() {
         let resSummary = resSummaryRaw;
 
         const soapData = resSoap as SoapData | null;
-        if (!soapData?.subjective?.chiefComplaint) {
+        const hasSoap =
+          Boolean(soapData?.subjective?.chiefComplaint?.trim()) ||
+          Boolean(soapData?.objective?.observationNotes?.trim()) ||
+          Boolean(soapData?.assessment?.diagnosisSummary?.trim());
+        if (!hasSoap) {
           const generated = await api.generateSoapNotes(sessionId);
           if (generated) resSoap = generated;
         }

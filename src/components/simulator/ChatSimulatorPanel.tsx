@@ -148,7 +148,7 @@ export function ChatSimulatorPanel({
           <div className="text-center py-8 px-4">
             <p className="text-sm font-semibold text-medexa-gray-900 mb-1">Simulator ready</p>
             <p className="text-xs text-medexa-gray-500">
-              Press Start, then use &quot;Next test line&quot; or type messages. Timestamps follow transcript order.
+              Press Start, then use &quot;Next test line&quot; or type messages. Timestamps follow the live session clock.
             </p>
           </div>
         ) : (

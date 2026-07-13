@@ -56,7 +56,8 @@ function mergePcmChunks(chunks: Float32Array[]): Float32Array {
  */
 export function useWhisperListening(
   sessionId: string,
-  onChunkFinalized?: (chunk: string) => void
+  onChunkFinalized?: (chunk: string) => void,
+  getElapsedSeconds?: () => number
 ): UseWhisperListeningReturn {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
@@ -69,6 +70,7 @@ export function useWhisperListening(
   const streamRef = useRef<MediaStream | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
+  const getElapsedRef = useRef(getElapsedSeconds);
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -87,6 +89,10 @@ export function useWhisperListening(
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
   }, [onChunkFinalized]);
+
+  useEffect(() => {
+    getElapsedRef.current = getElapsedSeconds;
+  }, [getElapsedSeconds]);
 
   useEffect(() => {
     const ok =
@@ -149,12 +155,14 @@ export function useWhisperListening(
       );
       try {
         const pitchHz = capturedPitch > 0 ? capturedPitch : undefined;
+        const clientElapsed = getElapsedRef.current?.();
         const result = await api.transcribeAudio(
           sessionId,
           blob,
           "audio/wav",
           pitchHz,
-          durationSec
+          durationSec,
+          clientElapsed
         );
         const text = (result?.transcript || "").trim();
         if (text && result && !isLikelyWhisperHallucination(text)) {
