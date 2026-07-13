@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiDiarizedUtterance } from "@/lib/api";
-import { encodeWav } from "@/lib/encodeWav";
+import { encodeWav, TARGET_SAMPLE_RATE } from "@/lib/encodeWav";
 import { isLikelyWhisperHallucination } from "@/lib/whisperHallucination";
 import { estimatePitchHz } from "@/lib/voicePitch";
 
@@ -20,14 +20,14 @@ export interface UseWhisperListeningReturn {
   syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
-const MIN_UPLOAD_BYTES = 1200;
+const MIN_UPLOAD_BYTES = 800;
 const MIN_PEAK_RMS = 0.008;
 const SPEECH_RMS = 0.008;
-const SILENCE_END_MS = 900;
-const MIN_SPEECH_MS = 500;
-const MAX_UTTERANCE_MS = 45000;
-const VAD_TICK_MS = 80;
-const PCM_BUFFER_SIZE = 4096;
+const SILENCE_END_MS = 550;
+const MIN_SPEECH_MS = 400;
+const MAX_UTTERANCE_MS = 30000;
+const VAD_TICK_MS = 50;
+const PCM_BUFFER_SIZE = 2048;
 
 function sampleRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
@@ -71,7 +71,7 @@ export function useWhisperListening(
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const sampleRateRef = useRef(48000);
+  const sampleRateRef = useRef(TARGET_SAMPLE_RATE);
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const utteranceActiveRef = useRef(false);
   const peakRmsRef = useRef(0);
@@ -218,8 +218,13 @@ export function useWhisperListening(
     if (!chunks.length) return;
 
     const merged = mergePcmChunks(chunks);
-    const minSamples = Math.floor(sampleRateRef.current * 0.35);
+    const minSamples = Math.floor(sampleRateRef.current * 0.3);
     if (merged.length < minSamples) return;
+
+    if (analyserRef.current && audioContextRef.current) {
+      const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
+      if (pitch > 0) chunkPitchRef.current = pitch;
+    }
 
     const blob = encodeWav(merged, sampleRateRef.current);
     void uploadBlob(blob);
@@ -242,10 +247,6 @@ export function useWhisperListening(
         utteranceStartedAtRef.current = Date.now();
       }
       peakRmsRef.current = Math.max(peakRmsRef.current, rms);
-      if (audioContextRef.current) {
-        const pitch = estimatePitchHz(analyserRef.current, audioContextRef.current.sampleRate);
-        if (pitch > 0) chunkPitchRef.current = pitch;
-      }
       speechMsRef.current += VAD_TICK_MS;
       if (speechMsRef.current >= MAX_UTTERANCE_MS) {
         finalizeUtterance();
@@ -263,7 +264,7 @@ export function useWhisperListening(
   const startAudioCapture = useCallback(
     async (stream: MediaStream) => {
       if (typeof window === "undefined" || !window.AudioContext) return;
-      const ctx = new AudioContext();
+      const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
       if (ctx.state === "suspended") {
         await ctx.resume();
       }
