@@ -23,10 +23,11 @@ const MIN_UPLOAD_BYTES = 400;
 const MIN_PEAK_RMS = 0.008;
 const SPEECH_RMS = 0.008;
 const SILENCE_END_MS = 900;
-const MIN_SPEECH_MS = 250;
+const MIN_SPEECH_MS = 300;
 const MAX_UTTERANCE_MS = 45000;
 const VAD_TICK_MS = 80;
 const RECORDER_TIMESLICE_MS = 200;
+const RECORDER_STOP_DELAY_MS = 150;
 
 function sampleRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
@@ -49,8 +50,8 @@ function pickMimeType(): string | undefined {
 }
 
 /**
- * Ambient listening — one continuous recorder, utterance boundaries from VAD.
- * Each completed speech pause uploads to Deepgram + voice diarization on the backend.
+ * Ambient listening — one MediaRecorder per speech utterance so each upload
+ * includes a valid container header (fixes Deepgram 400 on corrupt WebM).
  */
 export function useWhisperListening(
   sessionId: string,
@@ -64,8 +65,8 @@ export function useWhisperListening(
   const [lastChunk, setLastChunk] = useState("");
   const [utterances, setUtterances] = useState<ApiDiarizedUtterance[]>([]);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const utteranceRecorderRef = useRef<MediaRecorder | null>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
   const mimeTypeRef = useRef<string>("audio/webm");
@@ -74,6 +75,7 @@ export function useWhisperListening(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const utterancePartsRef = useRef<Blob[]>([]);
   const utteranceActiveRef = useRef(false);
+  const utteranceFinalizingRef = useRef(false);
   const peakRmsRef = useRef(0);
   const chunkPitchRef = useRef(0);
   const speechMsRef = useRef(0);
@@ -110,12 +112,29 @@ export function useWhisperListening(
     });
   }, []);
 
+  const stopUtteranceRecorder = useCallback(() => {
+    const recorder = utteranceRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    try {
+      recorder.requestData();
+    } catch {
+      /* ignore */
+    }
+    window.setTimeout(() => {
+      try {
+        if (recorder.state !== "inactive") recorder.stop();
+      } catch {
+        /* ignore */
+      }
+    }, RECORDER_STOP_DELAY_MS);
+  }, []);
+
   const stopTracks = useCallback(() => {
     if (vadTimerRef.current) {
       clearInterval(vadTimerRef.current);
       vadTimerRef.current = null;
     }
-    const recorder = mediaRecorderRef.current;
+    const recorder = utteranceRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       try {
         recorder.stop();
@@ -123,12 +142,13 @@ export function useWhisperListening(
         /* ignore */
       }
     }
+    utteranceRecorderRef.current = null;
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     analyserRef.current = null;
-    mediaRecorderRef.current = null;
     utterancePartsRef.current = [];
     utteranceActiveRef.current = false;
+    utteranceFinalizingRef.current = false;
     peakRmsRef.current = 0;
     chunkPitchRef.current = 0;
     speechMsRef.current = 0;
@@ -211,8 +231,54 @@ export function useWhisperListening(
     [sessionId]
   );
 
+  const startUtteranceRecorder = useCallback(
+    (stream: MediaStream) => {
+      const existing = utteranceRecorderRef.current;
+      if (existing && existing.state !== "inactive") {
+        try {
+          existing.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const mimeType = mimeTypeRef.current;
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      utterancePartsRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          utterancePartsRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        utteranceRecorderRef.current = null;
+        utteranceFinalizingRef.current = false;
+        if (!shouldListenRef.current) return;
+        const parts = [...utterancePartsRef.current];
+        utterancePartsRef.current = [];
+        if (!parts.length) return;
+        const blob = new Blob(parts, { type: mimeTypeRef.current });
+        void uploadBlob(blob);
+      };
+      recorder.onerror = () => {
+        setError("Recording error — try typed chunks instead.");
+        shouldListenRef.current = false;
+        setIsListening(false);
+        stopTracks();
+      };
+
+      utteranceRecorderRef.current = recorder;
+      recorder.start(RECORDER_TIMESLICE_MS);
+    },
+    [stopTracks, uploadBlob]
+  );
+
   const finalizeUtterance = useCallback(() => {
-    if (!utteranceActiveRef.current) return;
+    if (!utteranceActiveRef.current || utteranceFinalizingRef.current) return;
+    utteranceFinalizingRef.current = true;
     utteranceActiveRef.current = false;
     speechMsRef.current = 0;
     silenceMsRef.current = 0;
@@ -220,12 +286,8 @@ export function useWhisperListening(
       0.25,
       (Date.now() - utteranceStartedAtRef.current) / 1000
     );
-    const parts = [...utterancePartsRef.current];
-    utterancePartsRef.current = [];
-    if (!parts.length) return;
-    const blob = new Blob(parts, { type: mimeTypeRef.current });
-    void uploadBlob(blob);
-  }, [uploadBlob]);
+    stopUtteranceRecorder();
+  }, [stopUtteranceRecorder]);
 
   const runVoiceActivityDetection = useCallback(() => {
     if (!analyserRef.current || !shouldListenRef.current) return;
@@ -237,11 +299,13 @@ export function useWhisperListening(
       silenceMsRef.current = 0;
       if (!utteranceActiveRef.current) {
         utteranceActiveRef.current = true;
-        utterancePartsRef.current = [];
         speechMsRef.current = 0;
         peakRmsRef.current = 0;
         chunkPitchRef.current = 0;
         utteranceStartedAtRef.current = Date.now();
+        if (streamRef.current) {
+          startUtteranceRecorder(streamRef.current);
+        }
       }
       peakRmsRef.current = Math.max(peakRmsRef.current, rms);
       if (audioContextRef.current) {
@@ -260,29 +324,7 @@ export function useWhisperListening(
     if (silenceMsRef.current >= SILENCE_END_MS && speechMsRef.current >= MIN_SPEECH_MS) {
       finalizeUtterance();
     }
-  }, [finalizeUtterance]);
-
-  const startContinuousRecorder = useCallback((stream: MediaStream) => {
-    const mimeType = mimeTypeRef.current;
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0 && utteranceActiveRef.current) {
-        utterancePartsRef.current.push(event.data);
-      }
-    };
-    recorder.onerror = () => {
-      setError("Recording error — try typed chunks instead.");
-      shouldListenRef.current = false;
-      setIsListening(false);
-      stopTracks();
-    };
-
-    mediaRecorderRef.current = recorder;
-    recorder.start(RECORDER_TIMESLICE_MS);
-  }, [stopTracks]);
+  }, [finalizeUtterance, startUtteranceRecorder]);
 
   const startVadMonitor = useCallback(
     async (stream: MediaStream) => {
@@ -323,7 +365,6 @@ export function useWhisperListening(
       shouldListenRef.current = true;
       setIsListening(true);
       await startVadMonitor(stream);
-      startContinuousRecorder(stream);
       return true;
     } catch {
       shouldListenRef.current = false;
@@ -332,7 +373,7 @@ export function useWhisperListening(
       stopTracks();
       return false;
     }
-  }, [isSupported, startContinuousRecorder, startVadMonitor, stopTracks]);
+  }, [isSupported, startVadMonitor, stopTracks]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
