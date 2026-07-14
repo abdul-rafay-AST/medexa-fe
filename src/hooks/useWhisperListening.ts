@@ -23,16 +23,18 @@ export interface UseWhisperListeningReturn {
 const MIN_UPLOAD_BYTES = 500;
 const MIN_PEAK_RMS = 0.005;
 const SPEECH_RMS = 0.005;
-const SILENCE_END_MS = 350;
-const MIN_SPEECH_MS = 280;
-/** Upload every ~2s while speaking — keeps STT latency low without chopping words. */
-const ROTATE_SPEECH_MS = 2000;
+/** Silence duration before utterance ends — lower = faster finalization. */
+const SILENCE_END_MS = 250;
+/** Minimum speech duration before accepting an utterance — shorter to catch brief replies. */
+const MIN_SPEECH_MS = 200;
+/** Upload every ~1.5s while speaking — keeps STT latency low without chopping words. */
+const ROTATE_SPEECH_MS = 1500;
 const MAX_UTTERANCE_MS = 4500;
 const VAD_TICK_MS = 40;
 const PCM_BUFFER_SIZE = 2048;
-/** Allow a small pool of parallel STT requests; drop backlog instead of stacking forever. */
-const MAX_UPLOAD_IN_FLIGHT = 2;
-const MAX_QUEUED_UPLOADS = 2;
+/** Parallel STT request pool — 3 in-flight keeps the pipeline saturated over tunnels. */
+const MAX_UPLOAD_IN_FLIGHT = 3;
+const MAX_QUEUED_UPLOADS = 3;
 
 function sampleRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
