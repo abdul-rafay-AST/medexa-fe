@@ -34,7 +34,7 @@ type BillingAnchors = {
   atMs: number;
 };
 
-export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }: UseLiveSessionOptions) {
+export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }: UseLiveSessionOptions) {
   const [session, setSession] = useState<ApiSession | null>(null);
   const [recordingState, setRecordingState] = useState<ApiRecordingState | null>(null);
   const [insights, setInsights] = useState<ApiInsight[]>([]);
@@ -253,11 +253,15 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
       setSending(true);
       setLastChunkError(null);
 
+      // Unlock UI immediately — Path A/B run async; tunnel RTT must not block typing.
+      const analyzePromise = api.analyzeTranscriptChunk(sessionId, labeled, {
+        elapsedSeconds: messageAt,
+        durationSeconds,
+      });
+      setSending(false);
+
       try {
-        const analysis = await api.analyzeTranscriptChunk(sessionId, labeled, {
-          elapsedSeconds: messageAt,
-          durationSeconds,
-        });
+        const analysis = await analyzePromise;
         if (!analysis) {
           setLastChunkError("Message failed. Please check network connection or backend logs.");
           setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
@@ -270,8 +274,6 @@ export function useLiveSession({ sessionId, pollMs = 2000, disableTick = false }
         setLastChunkError("Network error sending chat message.");
         setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
         return false;
-      } finally {
-        setSending(false);
       }
     },
     [
