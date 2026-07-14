@@ -66,7 +66,7 @@ export function ChatSimulatorPanel({
 }: ChatSimulatorPanelProps) {
   const pathTestScript = PATH_TEST_SCRIPTS[billingRegion];
   const [text, setText] = useState("");
-  const [speaker, setSpeaker] = useState<ChatSpeaker>("patient");
+  const [speaker, setSpeaker] = useState<ChatSpeaker>("therapist");
   const [scriptIndex, setScriptIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -77,11 +77,17 @@ export function ChatSimulatorPanel({
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (!text.trim() || sending) return;
-    const ok = await onSendChat(speaker, text);
-    if (ok) {
-      setText("");
-      setSpeaker((prev) => (prev === "therapist" ? "patient" : "therapist"));
+    const body = text.trim();
+    if (!body || sending) return;
+    const currentSpeaker = speaker;
+    // Optimistic UI: clear + flip speaker immediately (don't wait on tunnel/Path A).
+    setText("");
+    setSpeaker(currentSpeaker === "therapist" ? "patient" : "therapist");
+    const ok = await onSendChat(currentSpeaker, body);
+    if (!ok) {
+      // Roll back speaker if send failed.
+      setSpeaker(currentSpeaker);
+      setText(body);
     }
   };
 

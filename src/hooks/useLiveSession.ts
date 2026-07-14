@@ -230,7 +230,17 @@ export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }
       if (!body || loadError) return false;
 
       if (!isSessionRunning) {
-        await startSessionClock();
+        // Don't await full refresh — first message must stay instant over tunnels.
+        setHasEverStarted(true);
+        setIsSessionRunning(true);
+        const base = getWallClockElapsed();
+        armSessionClock(base);
+        void api.updateState(sessionId, "recording", base).then((state) => {
+          if (state) {
+            setRecordingState(state);
+            snapBillingAnchors(state);
+          }
+        });
       }
 
       const messageAt = getWallClockElapsed();
@@ -277,11 +287,12 @@ export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }
       }
     },
     [
+      armSessionClock,
       getWallClockElapsed,
       isSessionRunning,
       loadError,
       sessionId,
-      startSessionClock,
+      snapBillingAnchors,
     ]
   );
 
