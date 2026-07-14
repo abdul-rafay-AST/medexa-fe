@@ -34,7 +34,7 @@ type BillingAnchors = {
   atMs: number;
 };
 
-export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }: UseLiveSessionOptions) {
+export function useLiveSession({ sessionId, pollMs = 2500, disableTick = false }: UseLiveSessionOptions) {
   const [session, setSession] = useState<ApiSession | null>(null);
   const [recordingState, setRecordingState] = useState<ApiRecordingState | null>(null);
   const [insights, setInsights] = useState<ApiInsight[]>([]);
@@ -149,15 +149,13 @@ export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }
   );
 
   const refreshLiveData = useCallback(async () => {
-    const [sessionData, state, resInsights, resSuggestions, resAssistant, resPipeline] =
-      await Promise.all([
-        api.getSession(sessionId),
-        api.getState(sessionId),
-        api.getInsights(sessionId),
-        api.getSuggestions(sessionId),
-        api.getAssistantSuggestions(sessionId),
-        api.getLivePipeline(sessionId),
-      ]);
+    // Prefer one live-pipeline read (+ session/state) so Cloudflare + DynamoDB
+    // are not flooded with 6 parallel GETs every second.
+    const [sessionData, state, resPipeline] = await Promise.all([
+      api.getSession(sessionId),
+      api.getState(sessionId),
+      api.getLivePipeline(sessionId),
+    ]);
 
     if (!sessionData) {
       pollFailuresRef.current += 1;
@@ -184,13 +182,12 @@ export function useLiveSession({ sessionId, pollMs = 1200, disableTick = false }
       snapBillingAnchors(state);
     }
 
-    if (resInsights) setInsights(resInsights);
-    if (resSuggestions) setSuggestions(resSuggestions);
-    if (resAssistant) setAssistantSuggestions(resAssistant);
-
     if (resPipeline) {
       setPipeline(resPipeline);
       setActiveCptCode(resPipeline.pathA.activeCpt ?? null);
+      if (resPipeline.insights?.length) setInsights(resPipeline.insights);
+      if (resPipeline.billingSuggestions?.length) setSuggestions(resPipeline.billingSuggestions);
+      if (resPipeline.assistantSuggestions) setAssistantSuggestions(resPipeline.assistantSuggestions);
       if (!state) {
         setElapsed(resPipeline.elapsedSeconds ?? 0);
         setCptElapsed(resPipeline.pathA.cptElapsedSeconds ?? 0);
