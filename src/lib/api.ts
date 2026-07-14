@@ -179,13 +179,13 @@ export interface StartSessionResponse {
 
 class ApiClient {
   private getApiUrl(): string {
+    // Production (Vercel): always set NEXT_PUBLIC_MEDEXA_API_URL to App Runner HTTPS.
     if (process.env.NEXT_PUBLIC_MEDEXA_API_URL) {
       return process.env.NEXT_PUBLIC_MEDEXA_API_URL;
     }
     if (typeof window !== "undefined") {
       const host = window.location.hostname;
-      // If we are running in the browser on Vercel or any non-localhost domain,
-      // fallback to the Hugging Face Space backend URL.
+      // Legacy HF fallback when env is unset. Prefer AWS App Runner in prod.
       if (host !== "localhost" && host !== "127.0.0.1" && !host.startsWith("192.168.")) {
         return "https://abdul-rafay-ast-medexa-backend.hf.space";
       }
