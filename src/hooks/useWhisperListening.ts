@@ -20,16 +20,19 @@ export interface UseWhisperListeningReturn {
   syncUtterances: (items: ApiDiarizedUtterance[]) => void;
 }
 
-const MIN_UPLOAD_BYTES = 600;
-const MIN_PEAK_RMS = 0.006;
-const SPEECH_RMS = 0.006;
-const SILENCE_END_MS = 400;
-const MIN_SPEECH_MS = 300;
-/** Upload every 3s while speaking — avoids waiting 30s for MAX_UTTERANCE. */
-const ROTATE_SPEECH_MS = 3000;
-const MAX_UTTERANCE_MS = 6000;
+const MIN_UPLOAD_BYTES = 500;
+const MIN_PEAK_RMS = 0.005;
+const SPEECH_RMS = 0.005;
+const SILENCE_END_MS = 350;
+const MIN_SPEECH_MS = 280;
+/** Upload every ~2s while speaking — keeps STT latency low without chopping words. */
+const ROTATE_SPEECH_MS = 2000;
+const MAX_UTTERANCE_MS = 4500;
 const VAD_TICK_MS = 40;
 const PCM_BUFFER_SIZE = 2048;
+/** Allow a small pool of parallel STT requests; drop backlog instead of stacking forever. */
+const MAX_UPLOAD_IN_FLIGHT = 2;
+const MAX_QUEUED_UPLOADS = 2;
 
 function sampleRms(analyser: AnalyserNode): number {
   const data = new Float32Array(analyser.fftSize);
@@ -50,9 +53,17 @@ function mergePcmChunks(chunks: Float32Array[]): Float32Array {
   return merged;
 }
 
+type PendingUpload = {
+  blob: Blob;
+  peak: number;
+  pitch: number;
+  durationSec: number;
+};
+
 /**
- * Ambient listening — rolling 3s WAV uploads while speaking.
- * Previously MAX_UTTERANCE_MS=30000 caused ~30s delay before first transcript.
+ * Ambient listening — short VAD windows + parallel Deepgram uploads.
+ * Industry pattern: finalize on silence (~350ms), rotate long speech (~2s),
+ * never wait on Path A (server returns transcript first).
  */
 export function useWhisperListening(
   sessionId: string,
@@ -85,7 +96,8 @@ export function useWhisperListening(
   const utteranceStartedAtRef = useRef(0);
   const lastUtteranceDurationSecRef = useRef(0);
   const uploadsInFlightRef = useRef(0);
-  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingUploadsRef = useRef<PendingUpload[]>([]);
+  const drainRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     onChunkRef.current = onChunkFinalized;
@@ -135,6 +147,7 @@ export function useWhisperListening(
     chunkPitchRef.current = 0;
     speechMsRef.current = 0;
     silenceMsRef.current = 0;
+    pendingUploadsRef.current = [];
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
@@ -205,9 +218,40 @@ export function useWhisperListening(
         if (uploadsInFlightRef.current === 0) {
           setIsTranscribing(false);
         }
+        drainRef.current();
       }
     },
     [sessionId]
+  );
+
+  const drainUploadQueue = useCallback(() => {
+    while (
+      uploadsInFlightRef.current < MAX_UPLOAD_IN_FLIGHT &&
+      pendingUploadsRef.current.length > 0
+    ) {
+      const next = pendingUploadsRef.current.shift();
+      if (!next) break;
+      void uploadBlob(next.blob, next.peak, next.pitch, next.durationSec);
+    }
+  }, [uploadBlob]);
+
+  useEffect(() => {
+    drainRef.current = drainUploadQueue;
+  }, [drainUploadQueue]);
+
+  const enqueueUpload = useCallback(
+    (blob: Blob, peak: number, pitch: number, durationSec: number) => {
+      if (uploadsInFlightRef.current < MAX_UPLOAD_IN_FLIGHT) {
+        void uploadBlob(blob, peak, pitch, durationSec);
+        return;
+      }
+      if (pendingUploadsRef.current.length >= MAX_QUEUED_UPLOADS) {
+        // Drop oldest backlog — fresher speech matters more for live therapy UX.
+        pendingUploadsRef.current.shift();
+      }
+      pendingUploadsRef.current.push({ blob, peak, pitch, durationSec });
+    },
+    [uploadBlob]
   );
 
   const flushPcm = useCallback(
@@ -236,7 +280,7 @@ export function useWhisperListening(
       }
 
       const merged = mergePcmChunks(chunks);
-      const minSamples = Math.floor(sampleRateRef.current * 0.25);
+      const minSamples = Math.floor(sampleRateRef.current * 0.2);
       if (merged.length < minSamples) {
         if (endUtterance) {
           peakRmsRef.current = 0;
@@ -258,12 +302,10 @@ export function useWhisperListening(
       const capturedPeak = peakRmsRef.current;
       const capturedPitch = chunkPitchRef.current;
       const durationSec = Math.max(
-        0.25,
+        0.2,
         lastUtteranceDurationSecRef.current || blob.size / 32000
       );
-      uploadQueueRef.current = uploadQueueRef.current.then(() =>
-        uploadBlob(blob, capturedPeak, capturedPitch, durationSec)
-      );
+      enqueueUpload(blob, capturedPeak, capturedPitch, durationSec);
 
       if (endUtterance) {
         peakRmsRef.current = 0;
@@ -271,7 +313,7 @@ export function useWhisperListening(
         lastUtteranceDurationSecRef.current = 0;
       }
     },
-    [uploadBlob]
+    [enqueueUpload]
   );
 
   const runVoiceActivityDetection = useCallback(() => {
@@ -294,8 +336,11 @@ export function useWhisperListening(
       speechMsRef.current += VAD_TICK_MS;
       if (speechMsRef.current >= ROTATE_SPEECH_MS) {
         flushPcm(false);
-      } else if (speechMsRef.current >= MAX_UTTERANCE_MS) {
-        flushPcm(false);
+      } else if (
+        Date.now() - utteranceStartedAtRef.current >= MAX_UTTERANCE_MS &&
+        speechMsRef.current >= MIN_SPEECH_MS
+      ) {
+        flushPcm(true);
       }
       return;
     }
@@ -351,9 +396,10 @@ export function useWhisperListening(
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
+          echoCancellation: true,
+          noiseSuppression: true,
           autoGainControl: true,
+          channelCount: 1,
         },
       });
       streamRef.current = stream;
