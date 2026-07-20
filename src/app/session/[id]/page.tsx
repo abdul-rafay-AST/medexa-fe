@@ -71,6 +71,7 @@ export default function LiveSession() {
     stopListening,
     transcript,
     lastChunk,
+    browserInterimText,
     utterances,
     syncUtterances,
   } = useWhisperListening(
@@ -449,7 +450,13 @@ export default function LiveSession() {
             <TranscriptComposer
               utterances={utterances}
               ambientInterim={
-                isTranscribing ? "Transcribing…" : lastChunk ? `Last: ${lastChunk}` : undefined
+                browserInterimText
+                  ? `🗣️ ${browserInterimText}`
+                  : isTranscribing
+                  ? "Transcribing…"
+                  : lastChunk
+                  ? `Last: ${lastChunk}`
+                  : undefined
               }
               speechSupported={isSupported}
               speechError={speechError}

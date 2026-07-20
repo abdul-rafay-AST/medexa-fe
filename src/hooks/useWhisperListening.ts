@@ -13,6 +13,7 @@ export interface UseWhisperListeningReturn {
   error: string | null;
   transcript: string;
   lastChunk: string;
+  browserInterimText: string;
   utterances: ApiDiarizedUtterance[];
   startListening: () => Promise<boolean>;
   stopListening: () => void;
@@ -78,9 +79,12 @@ export function useWhisperListening(
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [lastChunk, setLastChunk] = useState("");
+  const [browserInterimText, setBrowserInterimText] = useState("");
   const [utterances, setUtterances] = useState<ApiDiarizedUtterance[]>([]);
 
   const streamRef = useRef<MediaStream | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef(false);
   const onChunkRef = useRef(onChunkFinalized);
   const getElapsedRef = useRef(getElapsedSeconds);
@@ -152,6 +156,12 @@ export function useWhisperListening(
     pendingUploadsRef.current = [];
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setBrowserInterimText("");
   }, []);
 
   const uploadBlob = useCallback(
@@ -176,6 +186,7 @@ export function useWhisperListening(
         );
         const text = (result?.transcript || "").trim();
         if (text && result && !isLikelyWhisperHallucination(text)) {
+          setBrowserInterimText(""); // Clear interim once backend catches up
           setLastChunk(text);
           setTranscript((prev) => {
             const spacer = prev && !prev.endsWith(" ") ? " " : "";
@@ -406,6 +417,35 @@ export function useWhisperListening(
       });
       streamRef.current = stream;
       shouldListenRef.current = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onresult = (event: any) => {
+          let interimTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (!event.results[i].isFinal) {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          if (interimTranscript) {
+            setBrowserInterimText(interimTranscript);
+          }
+        };
+        recognition.onerror = () => {
+          // Ignore browser STT errors, fallback gracefully
+        };
+        try {
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (err) {
+          console.warn("SpeechRecognition start failed:", err);
+        }
+      }
+
       setIsListening(true);
       await startAudioCapture(stream);
       return true;
@@ -447,6 +487,7 @@ export function useWhisperListening(
     error,
     transcript,
     lastChunk,
+    browserInterimText,
     utterances,
     startListening,
     stopListening,
